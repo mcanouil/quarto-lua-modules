@@ -1,0 +1,243 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version bump type (patch/minor/major)"
+        required: false
+        default: "minor"
+        type: choice
+        options: [patch, minor, major]
+      merge-timeout:
+        description: "Seconds to wait for the version bump pull request to merge"
+        required: false
+        default: 1800
+        type: number
+
+# A release bumps a version, pushes a branch, and creates a tag, so two at once
+# would race over all three. Queue rather than cancel: a cancelled release
+# leaves the bump branch and its pull request behind.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      BRANCH: ci/bump-version
+      COMMIT: "ci: bump version for release :rocket:"
+      BUMP_VERSION: ${{ inputs.version }}
+      MERGE_TIMEOUT: ${{ inputs.merge-timeout }}
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      merge_sha: ${{ steps.bump.outputs.merge_sha }}
+      release_notes: ${{ steps.bump.outputs.release_notes }}
+    steps:
+      # A push made with the default token triggers no workflow, which leaves
+      # the bump pull request without the checks its auto-merge waits for, so
+      # the app identity is what makes the merge possible at all. The shared
+      # action resolves the token and the bot identity, and falls back to the
+      # workflow token where the app credentials are absent.
+      - name: Setup Git user
+        uses: mcanouil/quarto-workflows/.github/actions/setup-git-user@v2
+        id: setup-git-user
+        with:
+          gh-app-id: ${{ vars.APP_ID }}
+          app-key: ${{ secrets.APP_KEY }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Depth 1 is enough: the job commits on top of the checked out ref and
+      # pushes one commit whose parent the remote already has.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.setup-git-user.outputs.token }}
+
+      - name: Bump version
+        id: bump
+        env:
+          GH_TOKEN: ${{ steps.setup-git-user.outputs.token }}
+        run: |
+          set -euo pipefail
+          DATE=$(date +%Y-%m-%d)
+
+          git checkout -B "${BRANCH}"
+
+          # CITATION.cff carries the version for the whole set. The modules are
+          # vendored into other repositories, where they lose every other trace
+          # of where they came from, so each one repeats the set's version in
+          # its own header.
+          CURRENT=$(grep '^version:' CITATION.cff | sed 's/version: //;s/"//g' || true)
+          if [ -z "${CURRENT}" ]; then
+            echo "::error::No 'version:' field found in CITATION.cff."
+            exit 1
+          fi
+
+          MAJOR=$(echo "${CURRENT}" | cut -d. -f1)
+          MINOR=$(echo "${CURRENT}" | cut -d. -f2)
+          PATCH=$(echo "${CURRENT}" | cut -d. -f3)
+          case "${BUMP_VERSION}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+            *) echo "::error::Unknown bump type '${BUMP_VERSION}'."; exit 1 ;;
+          esac
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bumping ${CURRENT} to ${VERSION}."
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          sed -i "s/^version:.*/version: ${VERSION}/" CITATION.cff
+          sed -i "s/^date-released:.*/date-released: \"${DATE}\"/" CITATION.cff
+          sed -i "s/^--- @version .*/--- @version ${VERSION}/" modules/*.lua
+          git add CITATION.cff modules
+
+          # The changelog is flat: one conventional commit entry per line, with
+          # no type headings, because the prefix already carries the type.
+          # The sed drops the blank line that follows the heading.
+          RELEASE_NOTES=$(awk '/^## Unreleased/{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md | sed '/./,$!d')
+          if [ -z "${RELEASE_NOTES}" ]; then
+            echo "::error::CHANGELOG.md has no entries under '## Unreleased'."
+            exit 1
+          fi
+          # Rewritten with awk rather than `sed i\`, whose handling of the
+          # inserted line's leading whitespace differs between implementations.
+          awk -v heading="## ${VERSION} (${DATE})" '
+            /^## Unreleased$/ {
+              print "## Unreleased"
+              print ""
+              print heading
+              next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.next
+          mv CHANGELOG.next CHANGELOG.md
+          git add CHANGELOG.md
+
+          {
+            echo "release_notes<<RELEASE_NOTES_EOF"
+            echo "${RELEASE_NOTES}"
+            echo "RELEASE_NOTES_EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          git commit -m "${COMMIT}"
+          git push --force origin "${BRANCH}"
+
+          # A previous run that stopped between creating the pull request and
+          # its merge leaves one open, and `gh pr create` then refuses.
+          STALE=$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[].number' || true)
+          for number in ${STALE}; do
+            echo "Closing the stale pull request #${number}."
+            gh pr close "${number}" --comment "Superseded by a newer release run."
+          done
+
+          # The push has to be visible to the API before a pull request can name
+          # it as a head, and the pull request has to be mergeable before
+          # `--auto` will attach.
+          sleep 5
+          PR_URL=$(gh pr create --fill-first --base "${GITHUB_REF_NAME}" --head "${BRANCH}" \
+            --label "Type: CI/CD :robot:" | tail -n 1)
+          echo "Pull request: ${PR_URL}"
+          sleep 5
+          gh pr merge "${PR_URL}" --auto --squash --delete-branch
+
+          # The tag has to point at the bump, not at the commit before it, or a
+          # released archive would carry the previous version in every header.
+          # Every field comes from one response: read separately they would
+          # answer about different instants.
+          MERGE_SHA=""
+          DEADLINE=$(( SECONDS + MERGE_TIMEOUT ))
+          # Long enough that GitHub has created any check run it was going to.
+          BLOCKED_AFTER=$(( SECONDS + 120 ))
+          POLL='[.state, (.mergeCommit.oid // ""), (.mergeStateStatus // ""), (.statusCheckRollup | length)] | map(tostring) | join("|")'
+          while [ "${SECONDS}" -lt "${DEADLINE}" ]; do
+            INFO=$(gh pr view "${PR_URL}" \
+              --json state,mergeCommit,mergeStateStatus,statusCheckRollup \
+              --jq "${POLL}") || INFO=""
+            IFS='|' read -r STATE MERGE_SHA MERGE_STATE CHECKS <<< "${INFO}"
+
+            case "${STATE}" in
+              MERGED)
+                # The merge commit is not always attached the moment the state
+                # flips, so an empty one polls again.
+                if [ -n "${MERGE_SHA}" ]; then
+                  echo "Merged as ${MERGE_SHA}."
+                  break
+                fi
+                ;;
+              CLOSED)
+                echo "::error::${PR_URL} was closed without merging."
+                exit 1
+                ;;
+            esac
+            MERGE_SHA=""
+
+            # Where the branch requires status checks and none were ever
+            # created, auto-merge waits for something that cannot arrive.
+            # Waiting out the timeout to say so costs the whole budget in
+            # billed runner time.
+            if [ "${SECONDS}" -gt "${BLOCKED_AFTER}" ] \
+              && [ "${MERGE_STATE}" = "BLOCKED" ] && [ "${CHECKS}" = "0" ]; then
+              echo "::error::${PR_URL} is blocked with no check runs against it."
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          if [ -z "${MERGE_SHA}" ]; then
+            echo "::error::${PR_URL} did not merge within ${MERGE_TIMEOUT} seconds."
+            exit 1
+          fi
+          echo "merge_sha=${MERGE_SHA}" >> "${GITHUB_OUTPUT}"
+
+  release:
+    needs: [bump-version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.bump-version.outputs.version }}
+    steps:
+      - name: Checkout the merged bump
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.bump-version.outputs.merge_sha }}
+
+      - name: Setup Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      # A release is what a vendoring manifest points at, so it must not carry
+      # a module that fails to load.
+      - name: Run the tests
+        run: quarto pandoc lua tests/run.lua
+
+      - name: Build the archive
+        run: |
+          set -euo pipefail
+          tar --create --gzip --file "quarto-lua-modules-${VERSION}.tar.gz" modules LICENSE README.md
+          # Recorded so a manifest can pin the archive it vendored.
+          sha256sum "quarto-lua-modules-${VERSION}.tar.gz" > "quarto-lua-modules-${VERSION}.tar.gz.sha256"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ needs.bump-version.outputs.release_notes }}
+          MERGE_SHA: ${{ needs.bump-version.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${RELEASE_NOTES}" > notes.md
+          gh release create "${VERSION}" \
+            --target "${MERGE_SHA}" \
+            --title "Quarto Lua Modules ${VERSION}" \
+            --notes-file notes.md \
+            "quarto-lua-modules-${VERSION}.tar.gz" \
+            "quarto-lua-modules-${VERSION}.tar.gz.sha256" \
+            modules/*.lua

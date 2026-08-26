@@ -9,3 +9,4 @@ authors:
 repository-code: "https://github.com/mcanouil/quarto-lua-modules"
 license: MIT
 date-released: "2026-08-26"
+version: 0.0.0
