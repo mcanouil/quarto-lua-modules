@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # The modules run inside Quarto's Lua and several call `pandoc.*`, so the
       # tests need the Quarto CLI rather than a standalone Lua interpreter.

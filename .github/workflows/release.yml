@@ -57,7 +57,7 @@ jobs:
       # Depth 1 is enough: the job commits on top of the checked out ref and
       # pushes one commit whose parent the remote already has.
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           token: ${{ steps.setup-git-user.outputs.token }}
 
@@ -207,7 +207,7 @@ jobs:
       VERSION: ${{ needs.bump-version.outputs.version }}
     steps:
       - name: Checkout the merged bump
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.bump-version.outputs.merge_sha }}
 
