@@ -13,10 +13,10 @@ They are meant to be vendored. Quarto ships no package manager for Lua, so an ex
 | `git.lua` | Reads the current Git repository. |
 | `html.lua` | Builds raw HTML and registers HTML dependencies. |
 | `logging.lua` | Writes messages prefixed with the extension name. |
-| `lookup.lua` | Membership tests, keyword mapping, and file type checks. |
+| `lookup.lua` | Membership tests and keyword mapping. |
 | `metadata.lua` | Reads extension configuration out of document metadata. |
 | `pandoc-helpers.lua` | Builds Pandoc elements and detects the output format. |
-| `paths.lua` | Resolves a path relative to the project. |
+| `paths.lua` | Resolves a path relative to the project and checks a URI's file type. |
 | `string.lua` | Splits, trims, and escapes for HTML, LaTeX, Typst, JavaScript, and Lua. |
 
 ## Usage
