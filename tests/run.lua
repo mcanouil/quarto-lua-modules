@@ -71,14 +71,13 @@ local EXPECTED = {
   git = { 'get_repository' },
   html = { 'raw_header', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
-  lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css', 'has_extension',
-    'is_markdown' },
+  lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
   metadata = { 'get_extension_config', 'get_metadata_value', 'check_deprecated_config',
     'get_option_with_fallbacks', 'get_options', 'get_project_repo_url' },
   ['pandoc-helpers'] = { 'create_link', 'attr', 'has_class', 'add_class', 'get_quarto_format',
     'is_object_empty', 'is_type_simple', 'is_function_userdata', 'get_value',
     'attributes_to_table' },
-  paths = { 'resolve_project_path' },
+  paths = { 'resolve_project_path', 'has_extension', 'is_markdown' },
   string = { 'stringify', 'is_empty', 'escape_pattern', 'split', 'trim', 'to_string', 'strip_surrounding',
     'strip_edges', 'find_bracketed_content', 'escape_latex', 'escape_typst',
     'escape_typst_string', 'escape_js_string', 'escape_lua_pattern', 'escape_html',
@@ -181,10 +180,21 @@ do
     'keyword_to_value maps a known keyword')
   equal(lookup.keyword_to_value('other', { small = '1rem' }, '2rem'), '2rem',
     'keyword_to_value falls back to the default')
-  equal(lookup.is_markdown('notes.qmd'), true, 'a .qmd path is markdown')
-  equal(lookup.is_markdown('image.png'), false, 'a .png path is not markdown')
-  equal(lookup.has_extension('a/b/c.PNG', { '.png' }, false), true,
+end
+
+io.stdout:write('# paths\n')
+
+do
+  local paths = modules['paths']
+  equal(paths.is_markdown('notes.qmd'), true, 'a .qmd path is markdown')
+  equal(paths.is_markdown('image.png'), false, 'a .png path is not markdown')
+  equal(paths.has_extension('a/b/c.PNG', { '.png' }, false), true,
     'has_extension ignores case when asked to')
+  equal(paths.has_extension('a/b/c.PNG', { '.png' }, true), false,
+    'has_extension respects case when asked to')
+  equal(paths.has_extension('notes.md', { 'md' }), true,
+    'an extension given without its dot still matches')
+  equal(paths.has_extension(nil, { '.md' }), false, 'a nil path has no extension')
 end
 
 io.stdout:write('# colour\n')
