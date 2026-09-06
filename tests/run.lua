@@ -450,6 +450,41 @@ do
       "the checker's own array default gained no entry")
   end
 
+  -- The recursion is unbounded, not one level below the top container. The
+  -- two defaults above both sit one level down and hold scalars, so they
+  -- cannot tell "recurse once more" from "recurse all the way".
+  --
+  -- Nothing in the fleet nests a default three deep today, so this covers the
+  -- format rather than a schema in play. That is deliberate, and it is the
+  -- same argument that settled the depth: the vocabulary allows an array of
+  -- objects whose properties are objects, so the shape is reachable by a
+  -- schema nobody has written yet.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ entries = { type = 'array' } }),
+      defaults = {
+        entries = { { name = 'first', options = { colour = 'blue' } } },
+      },
+    }), 'demo')
+
+    local first = checker:options({})
+    first.entries[1].name = 'poisoned'
+    first.entries[1].options.colour = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second.entries[1] ~= first.entries[1],
+      'each call returns its own array element', 'the same element came back twice')
+    check(second.entries[1].options ~= first.entries[1].options,
+      'each call returns its own nested mapping', 'the same mapping came back twice')
+    equal(second.entries[1].name, 'first',
+      'a write two levels down leaves the checker unchanged')
+    equal(second.entries[1].options.colour, 'blue',
+      'a write three levels down leaves the checker unchanged')
+    equal(resolved.defaults.entries[1].options.colour, 'blue',
+      "the checker's own value three levels down is unchanged")
+  end
+
   -- The validator is injected from an independent source, so a schema without
   -- every section this module reads must not end the render.
   do
