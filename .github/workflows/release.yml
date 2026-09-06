@@ -221,7 +221,6 @@ jobs:
       - name: Checkout the merged bump
         uses: actions/checkout@v7
         with:
-          token: ${{ steps.setup-git-user.outputs.token }}
           ref: ${{ needs.bump-version.outputs.merge_sha }}
 
       - name: Setup Quarto
