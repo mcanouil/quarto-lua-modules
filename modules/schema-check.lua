@@ -98,17 +98,36 @@ local function attr_value(kwargs, key)
   return value
 end
 
---- Copy a table one level deep.
---- A schema default is a scalar, so one level is the whole value. The copy
---- exists so that a caller writing into what it received cannot change what
---- every later reader of the same checker sees.
---- @param source table<string, any> The table to copy
---- @return table<string, any>
-local function shallow_copy(source)
-  --- @type table<string, any>
+--- Copy a value, and every table inside it, all the way down.
+--- The copy exists so that a caller writing into what it received cannot
+--- change what every later reader of the same checker sees.
+---
+--- A default is whatever the schema declares, to any depth, and not only a
+--- scalar. An extension declares `default: []` for an array option, and
+--- another declares a mapping default, so a copy one level deep would hand two
+--- callers the same inner table and leave the fault one level down.
+---
+--- A table already copied on this walk is reused rather than copied again,
+--- which keeps shared structure shared and makes a cycle terminate. A schema
+--- file cannot express a cycle, because the validator's parser refuses anchors
+--- and aliases, but the validator is injected and what it returns is not this
+--- module's to assume.
+--- @param value any The value to copy
+--- @param seen table|nil Tables already copied on this walk
+--- @return any
+local function deep_copy(value, seen)
+  if type(value) ~= 'table' then
+    return value
+  end
+  seen = seen or {}
+  if seen[value] ~= nil then
+    return seen[value]
+  end
+  --- @type table
   local copy = {}
-  for key, value in pairs(source) do
-    copy[key] = value
+  seen[value] = copy
+  for key, item in pairs(value) do
+    copy[key] = deep_copy(item, seen)
   end
   return copy
 end
@@ -182,7 +201,7 @@ end
 --- @return table|nil resolved {provided, merged, defaults}, nil when there is no schema
 function Checker:options(meta)
   if self.options_checked then
-    return shallow_copy(self.defaults), self.resolved
+    return deep_copy(self.defaults), self.resolved
   end
   self.options_checked = true
 
@@ -192,7 +211,7 @@ function Checker:options(meta)
   -- it returns is not this module's to assume. `call` makes the same allowance
   -- for `shortcodes` one field over.
   if loaded == nil or next(loaded.options or {}) == nil then
-    return shallow_copy(self.defaults), self.resolved
+    return deep_copy(self.defaults), self.resolved
   end
 
   --- @type table<string, any>
@@ -212,7 +231,7 @@ function Checker:options(meta)
   self.defaults = defaults or {}
   self.resolved = { provided = provided, merged = merged, defaults = self.defaults }
 
-  return shallow_copy(self.defaults), self.resolved
+  return deep_copy(self.defaults), self.resolved
 end
 
 --- Check one shortcode call against its entry in the schema.

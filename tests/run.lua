@@ -415,6 +415,41 @@ do
     equal(resolved.defaults.set, 'octicon', 'the resolved defaults are unchanged as well')
   end
 
+  -- A default is not always a scalar. One extension in the fleet declares
+  -- `default: []` for an array option, and another a mapping default, so the
+  -- copy has to go all the way down. A caller inserting into the array it
+  -- received must not change what the checker holds.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({
+        ['page-exclude'] = { type = 'array', default = {} },
+        ['slide-change-cue'] = { type = 'object', default = { visual = true } },
+      }),
+      defaults = {
+        ['page-exclude'] = { '/drafts/*' },
+        ['slide-change-cue'] = { visual = true, audio = false },
+      },
+    }), 'demo')
+
+    local first = checker:options({})
+    table.insert(first['page-exclude'], 'poisoned')
+    first['slide-change-cue'].visual = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second['page-exclude'] ~= first['page-exclude'],
+      'each call returns its own array default', 'the same array came back twice')
+    equal(#second['page-exclude'], 1,
+      'inserting into a returned array leaves the checker unchanged')
+    equal(second['page-exclude'][1], '/drafts/*', 'the array default keeps its own entry')
+    equal(second['slide-change-cue'].visual, true,
+      'writing into a returned mapping default leaves the checker unchanged')
+    equal(resolved.defaults['page-exclude'][1], '/drafts/*',
+      "the checker's own array default is unchanged")
+    equal(#resolved.defaults['page-exclude'], 1,
+      "the checker's own array default gained no entry")
+  end
+
   -- The validator is injected from an independent source, so a schema without
   -- every section this module reads must not end the render.
   do
