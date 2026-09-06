@@ -387,6 +387,41 @@ do
     equal(#recorded, 1, '`options` checks the configuration once per render')
   end
 
+  -- The defaults are handed over as a copy. This module is vendored into many
+  -- extensions, and it publishes the defaults on a convenient path, so a
+  -- caller writing a computed fallback into what it received is an easy and
+  -- quiet mistake. The write must stay with the caller that made it.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      defaults = { set = 'octicon' },
+    }), 'demo')
+
+    local first = checker:options({})
+    first.set = 'poisoned'
+    first.added = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second ~= first, 'each call returns its own defaults table',
+      'the same table came back twice')
+    equal(second.set, 'octicon', 'writing to the returned defaults leaves the checker unchanged')
+    equal(second.added, nil, 'a key added to the returned defaults does not reach the checker')
+    equal(resolved.defaults.set, 'octicon', 'the resolved defaults are unchanged as well')
+  end
+
+  -- The validator is injected from an independent source, so a schema without
+  -- every section this module reads must not end the render.
+  do
+    install_stubs()
+    local ok, err = pcall(function()
+      local checker = check_mod.new(stub_validator({ schema = {} }), 'demo')
+      checker:options({})
+      checker:call('iconify', {}, {})
+    end)
+    check(ok, 'a schema with no sections does not raise', not ok and tostring(err) or nil)
+  end
+
   -- An option the schema rejects is an error: it names a value the extension
   -- cannot use, and the author has to correct it.
   do

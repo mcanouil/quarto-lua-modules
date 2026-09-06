@@ -98,6 +98,21 @@ local function attr_value(kwargs, key)
   return value
 end
 
+--- Copy a table one level deep.
+--- A schema default is a scalar, so one level is the whole value. The copy
+--- exists so that a caller writing into what it received cannot change what
+--- every later reader of the same checker sees.
+--- @param source table<string, any> The table to copy
+--- @return table<string, any>
+local function shallow_copy(source)
+  --- @type table<string, any>
+  local copy = {}
+  for key, value in pairs(source) do
+    copy[key] = value
+  end
+  return copy
+end
+
 --- Flatten a call's named options to plain strings for the validator.
 --- @param kwargs table<string, any> Key-value options for the call
 --- @return table<string, string>
@@ -158,19 +173,26 @@ end
 ---   defaults  the schema defaults on their own.
 --- It is nil when there is nothing to resolve against, so an extension can
 --- tell an unreadable schema from a document that set nothing.
+---
+--- The defaults are a fresh copy on every call, so a caller may treat them as
+--- its own. The tables inside the second return are the checker's, and every
+--- later reader of the same checker sees them, so they must not be written to.
 --- @param meta table<string, any> Document metadata
---- @return table<string, any> defaults The defaults, empty when there is no schema
+--- @return table<string, any> defaults A copy of the defaults, empty when there is no schema
 --- @return table|nil resolved {provided, merged, defaults}, nil when there is no schema
 function Checker:options(meta)
   if self.options_checked then
-    return self.defaults, self.resolved
+    return shallow_copy(self.defaults), self.resolved
   end
   self.options_checked = true
 
   --- @type table|nil
   local loaded = self.schema
-  if loaded == nil or next(loaded.options) == nil then
-    return self.defaults, self.resolved
+  -- The validator is injected from an independent source, so the shape of what
+  -- it returns is not this module's to assume. `call` makes the same allowance
+  -- for `shortcodes` one field over.
+  if loaded == nil or next(loaded.options or {}) == nil then
+    return shallow_copy(self.defaults), self.resolved
   end
 
   --- @type table<string, any>
@@ -190,7 +212,7 @@ function Checker:options(meta)
   self.defaults = defaults or {}
   self.resolved = { provided = provided, merged = merged, defaults = self.defaults }
 
-  return self.defaults, self.resolved
+  return shallow_copy(self.defaults), self.resolved
 end
 
 --- Check one shortcode call against its entry in the schema.
