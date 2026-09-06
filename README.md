@@ -34,9 +34,12 @@ A module that needs another one finds it in the same directory, so copy them tog
 
 ```lua
 local checker = check.new(schema, 'iconify')
-local defaults = checker:options(meta)
+local defaults, resolved = checker:options(meta)
 checker:call('iconify', args, kwargs)
 ```
+
+`options` returns the schema defaults first.
+It returns `provided`, `merged` and `defaults` second, for an extension that has to tell a value the document wrote from a key it never set.
 
 ## Development
 

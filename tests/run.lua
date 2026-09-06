@@ -338,10 +338,11 @@ do
         '[demo] Could not open schema file: _schema.yml',
         'the validator message is reported unchanged, with the extension name')
 
-      local defaults_ok, defaults = pcall(checker.options, checker, {})
+      local defaults_ok, defaults, resolved = pcall(checker.options, checker, {})
       check(defaults_ok and type(defaults) == 'table' and next(defaults) == nil,
         'without a schema `options` returns an empty table',
         defaults_ok and tostring(defaults) or ('raised: ' .. tostring(defaults)))
+      equal(resolved, nil, 'without a schema `options` resolves nothing')
 
       local call_ok, err = pcall(checker.call, checker, 'iconify', {}, {})
       check(call_ok, 'without a schema `call` does not raise',
@@ -366,6 +367,46 @@ do
     local again = checker:options({})
     equal(again.set, 'octicon', '`options` returns the same defaults when asked again')
     equal(#recorded, 0, '`options` checks the configuration once per render')
+  end
+
+  -- The second return carries what the document set as well as what it
+  -- resolved to. An extension needs `provided` to tell a value the author
+  -- wrote from a key they never set, which no default can answer: a default is
+  -- always present once declared, so `merged` alone cannot tell the two apart.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({
+        inline = { type = 'boolean', default = true },
+        set = { type = 'string', default = 'octicon' },
+      }),
+      provided = { inline = false },
+      merged = { inline = false, set = 'octicon' },
+      defaults = { inline = true, set = 'octicon' },
+    }), 'demo')
+
+    local defaults, resolved = checker:options({})
+    equal(defaults.inline, true, '`options` still returns the defaults first')
+    check(type(resolved) == 'table', '`options` returns a resolved table second',
+      tostring(resolved))
+    equal(resolved.defaults.inline, true, 'the resolved table carries the defaults')
+    equal(resolved.merged.inline, false, 'the resolved table carries the merged values')
+    equal(resolved.provided.inline, false, '`provided` holds a value the document wrote')
+    equal(resolved.provided.set, nil, '`provided` omits a key the document never set')
+
+    -- Without `provided` these two cases are the same table entry, which is
+    -- the fault this return exists to prevent.
+    check(resolved.provided.inline ~= nil and resolved.provided.set == nil,
+      '`provided` tells a written value from an absent key',
+      string.format('inline=%s set=%s', tostring(resolved.provided.inline),
+        tostring(resolved.provided.set)))
+    equal(resolved.merged.set, 'octicon',
+      'an absent key still resolves to its default in `merged`')
+
+    local again_defaults, again_resolved = checker:options({})
+    equal(again_defaults.inline, true, 'the cached call returns the same defaults')
+    check(again_resolved == resolved, 'the cached call returns the same resolved table',
+      tostring(again_resolved))
   end
 
   -- An unknown option is advice, not a failure.

@@ -11,7 +11,9 @@
 ---
 --- The validator arrives as an argument rather than through `require`. A
 --- vendored copy of this module then knows nothing about where the validator
---- was vendored, so the two sources stay independent.
+--- was vendored, so the two sources stay independent. The validator must
+--- provide `load_schema`, `validate`, `validate_shortcode` and
+--- `extract_meta_options`.
 ---
 --- Nothing here stops a render. A schema is configuration, and a fault in the
 --- configuration must not remove the document.
@@ -109,6 +111,7 @@ end
 --- @field extension string The extension name every message carries
 --- @field schema table|nil The parsed schema, nil when it could not be read
 --- @field defaults table<string, any> The defaults the schema declares
+--- @field resolved table|nil The three tables the configuration resolves to
 --- @field options_checked boolean Whether the configuration was already checked
 local Checker = {}
 Checker.__index = Checker
@@ -123,30 +126,40 @@ function Checker:_report(kind, message)
   reporter(self.extension, message)
 end
 
---- Check the document configuration and return the defaults the schema
---- declares. The check runs once, so an extension can ask for the defaults on
---- every shortcode without repeating the messages.
+--- Check the document configuration and return what it resolves to. The check
+--- runs once, so an extension can ask on every shortcode without repeating the
+--- messages.
 ---
---- The defaults come from a second pass over an empty table, which yields the
---- declared defaults alone. An extension needs them anyway, and reading them
---- back from the schema keeps `_schema.yml` the one place they are written.
+--- The defaults come first, because that is what most extensions want, and
+--- because the schema is the one place they are written. They come from a
+--- second pass over an empty table, which yields the declared defaults alone.
+---
+--- The second return holds three tables, because they answer different
+--- questions:
+---   provided  what the document actually set, which is the only way to tell
+---             a deliberate `false` or `0` from an absent key,
+---   merged    the same values with coercion and defaults applied,
+---   defaults  the schema defaults on their own.
+--- It is nil when there is nothing to resolve against, so an extension can
+--- tell an unreadable schema from a document that set nothing.
 --- @param meta table<string, any> Document metadata
---- @return table<string, any> The defaults, empty when there is no schema
+--- @return table<string, any> defaults The defaults, empty when there is no schema
+--- @return table|nil resolved {provided, merged, defaults}, nil when there is no schema
 function Checker:options(meta)
   if self.options_checked then
-    return self.defaults
+    return self.defaults, self.resolved
   end
   self.options_checked = true
 
   --- @type table|nil
   local loaded = self.schema
   if loaded == nil or loaded.options == nil or next(loaded.options) == nil then
-    return self.defaults
+    return self.defaults, self.resolved
   end
 
   --- @type table<string, any>
   local provided = self.validator.extract_meta_options(meta, self.extension)
-  local valid, errors, warnings = self.validator.validate(provided, loaded.options)
+  local valid, errors, warnings, merged = self.validator.validate(provided, loaded.options)
 
   for _, message in ipairs(warnings) do
     self:_report('option_warning', message)
@@ -159,8 +172,9 @@ function Checker:options(meta)
 
   local _, _, _, defaults = self.validator.validate({}, loaded.options, { unknown = 'ignore' })
   self.defaults = defaults or {}
+  self.resolved = { provided = provided, merged = merged, defaults = self.defaults }
 
-  return self.defaults
+  return self.defaults, self.resolved
 end
 
 --- Check one shortcode call against its entry in the schema.
@@ -251,6 +265,7 @@ function M.new(validator, extension_name)
     extension = extension_name,
     schema = nil,
     defaults = {},
+    resolved = nil,
     options_checked = false,
   }, Checker)
 
