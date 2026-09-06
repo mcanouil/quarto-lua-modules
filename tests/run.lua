@@ -301,7 +301,10 @@ do
         end
         return spec.valid ~= false, spec.errors or {}, spec.warnings or {}, spec.merged or {}
       end,
-      validate_shortcode = function()
+      validate_shortcode = function(name, args, kwargs, entry)
+        -- Kept so a check can read what the module handed over, not only what
+        -- it did with the answer.
+        spec.seen = { name = name, args = args, kwargs = kwargs, entry = entry }
         local call = spec.call or {}
         return call.valid ~= false, call.errors or {}, call.warnings or {},
           { arguments = {}, attributes = {} }
@@ -361,12 +364,46 @@ do
     local defaults = checker:options({})
     equal(defaults.set, 'octicon', '`options` returns the resolved defaults')
     equal(#recorded, 0, 'a valid configuration reports nothing')
+  end
 
-    -- The second call must not repeat the checks, so an extension may ask for
-    -- the defaults on every shortcode without filling the log.
+  -- The configuration is checked once per render, so an extension may ask for
+  -- the defaults on every shortcode without filling the log. The stub reports
+  -- a finding on every pass, so a second check would show as a second message.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      provided = { bogus = 'x' },
+      warnings = { 'bogus: is not a recognised key and was ignored.' },
+      defaults = { set = 'octicon' },
+    }), 'demo')
+
+    local first = checker:options({})
+    equal(first.set, 'octicon', '`options` returns the defaults on the first call')
+    equal(#recorded, 1, 'the first call reports what it finds')
+
     local again = checker:options({})
     equal(again.set, 'octicon', '`options` returns the same defaults when asked again')
-    equal(#recorded, 0, '`options` checks the configuration once per render')
+    equal(#recorded, 1, '`options` checks the configuration once per render')
+  end
+
+  -- An option the schema rejects is an error: it names a value the extension
+  -- cannot use, and the author has to correct it.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ inline = { type = 'boolean' } }),
+      provided = { inline = 'sometimes' },
+      valid = false,
+      errors = { 'inline: must be of type "boolean", got "string".' },
+      defaults = {},
+    }), 'demo')
+    checker:options({})
+    equal(#recorded, 1, 'a rejected option is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a rejected option is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] inline: must be of type "boolean", got "string".',
+      'the rejected option message is reported unchanged')
   end
 
   -- The second return carries what the document set as well as what it
@@ -439,6 +476,62 @@ do
     equal(recorded[1] and recorded[1].message,
       '[demo] iconify.bogus: is not a recognised key and was ignored.',
       'the unknown attribute message is reported unchanged')
+  end
+
+  -- An attribute the schema rejects is a warning, not an error, because the
+  -- rendered output does not change because of it. The call gives its required
+  -- argument, so the missing argument path does not take over the reporting.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = {
+        valid = false,
+        errors = { 'iconify.size: must be one of: 1x, 2x, got 3z.' },
+      },
+    }), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' }, { size = '3z' })
+    equal(#recorded, 1, 'a rejected attribute is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning',
+      'a rejected attribute is a warning, because the output does not change')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] iconify.size: must be one of: 1x, 2x, got 3z.',
+      'the rejected attribute message is reported unchanged')
+  end
+
+  -- A quoted value checks as the same thing as an unquoted one. Quarto's
+  -- metadata parser hands `aria-hidden='true'` over with its quotes attached,
+  -- and without the strip the value is checked with them.
+  do
+    install_stubs()
+    local spec = {
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = {},
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' },
+      { ['aria-hidden'] = "'true'", size = '2x' })
+
+    equal(spec.seen and spec.seen.kwargs['aria-hidden'], 'true',
+      'a surrounding quote pair is stripped before the check')
+    equal(spec.seen and spec.seen.kwargs.size, '2x',
+      'an unquoted value reaches the validator unchanged')
+    equal(spec.seen and spec.seen.args[1], 'fa6-brands:github',
+      'a positional argument reaches the validator as a string')
+    equal(#recorded, 0, 'a call the schema accepts reports nothing')
+  end
+
+  -- A kind with no severity is a fault in the module, and it says so rather
+  -- than passing the finding off at a level nobody chose.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({ schema = schema_with({}) }), 'demo')
+    local ok, err = pcall(checker._report, checker, 'not-a-kind', 'a finding')
+    check(ok, 'an unmapped severity does not raise', not ok and tostring(err) or nil)
+    equal(recorded[1] and recorded[1].level, 'error', 'an unmapped severity is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] schema-check has no severity for "not-a-kind": a finding',
+      'an unmapped severity names the kind it could not report')
   end
 
   -- A missing required argument is the one call finding that is an error,

@@ -66,6 +66,14 @@ local REPORTERS = {
   warning = log.log_warning,
 }
 
+-- A level with no reporter is the mistake a change to `SEVERITY` makes, and it
+-- is caught here, at load, rather than at the one render that reaches that kind
+-- of finding.
+for kind, level in pairs(SEVERITY) do
+  assert(REPORTERS[level] ~= nil,
+    string.format('schema-check: "%s" maps to the unknown level "%s"', kind, tostring(level)))
+end
+
 -- ============================================================================
 -- PRIVATE HELPERS
 -- ============================================================================
@@ -117,13 +125,21 @@ local Checker = {}
 Checker.__index = Checker
 
 --- Report one finding at the level its kind is mapped to.
+--- A kind with no entry in `SEVERITY` is a fault in this module, and it says so
+--- rather than reporting the finding at a level nobody chose. It is reported
+--- rather than raised, because a fault here must not remove a document.
 --- @param kind string A key of `SEVERITY`
 --- @param message string The message to report
 --- @return nil
 function Checker:_report(kind, message)
-  --- @type function
-  local reporter = REPORTERS[SEVERITY[kind]] or log.log_warning
-  reporter(self.extension, message)
+  --- @type string|nil
+  local level = SEVERITY[kind]
+  if level == nil then
+    log.log_error(self.extension, string.format(
+      'schema-check has no severity for "%s": %s', tostring(kind), message))
+    return
+  end
+  REPORTERS[level](self.extension, message)
 end
 
 --- Check the document configuration and return what it resolves to. The check
@@ -153,7 +169,7 @@ function Checker:options(meta)
 
   --- @type table|nil
   local loaded = self.schema
-  if loaded == nil or loaded.options == nil or next(loaded.options) == nil then
+  if loaded == nil or next(loaded.options) == nil then
     return self.defaults, self.resolved
   end
 
@@ -257,7 +273,7 @@ end
 ---   `validate_shortcode` and `extract_meta_options`
 --- @param extension_name string The extension name every message carries
 --- @return Checker
---- @usage local checker = M.new(schema, 'iconify')
+--- @usage local checker = M.new(validator, 'iconify')
 function M.new(validator, extension_name)
   --- @type Checker
   local checker = setmetatable({

@@ -33,7 +33,7 @@ A module that needs another one finds it in the same directory, so copy them tog
 `schema-check.lua` takes its validator as an argument rather than loading one, so an extension can vendor the two from different sources:
 
 ```lua
-local checker = check.new(schema, 'iconify')
+local checker = check.new(validator, 'iconify')
 local defaults, resolved = checker:options(meta)
 checker:call('iconify', args, kwargs)
 ```
