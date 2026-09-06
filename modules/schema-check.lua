@@ -3,7 +3,7 @@
 --- @license MIT
 --- @copyright 2026 Mickaël Canouil
 --- @author Mickaël Canouil
---- @version 2.0.0
+--- @version 2.1.0
 ---
 --- Holds the wiring that every extension would otherwise copy: read
 --- `_schema.yml` once, check the document configuration against it, check one
