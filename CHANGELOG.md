@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.2.0 (2026-09-06)
+
 - fix: The `schema-check` module could not find the schema of an extension whose entry points are in a subdirectory. `new` now takes the schema path as an optional third argument, and it still reads `_schema.yml` when the argument is absent.
 
 ## 2.1.0 (2026-09-06)
