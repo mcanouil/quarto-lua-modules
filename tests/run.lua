@@ -78,6 +78,7 @@ local EXPECTED = {
     'is_object_empty', 'is_type_simple', 'is_function_userdata', 'get_value',
     'attributes_to_table' },
   paths = { 'resolve_project_path', 'has_extension', 'is_markdown' },
+  ['schema-check'] = { 'new' },
   string = { 'stringify', 'is_empty', 'escape_pattern', 'split', 'trim', 'to_string', 'strip_surrounding',
     'strip_edges', 'find_bracketed_content', 'escape_latex', 'escape_typst',
     'escape_typst_string', 'escape_js_string', 'escape_lua_pattern', 'escape_html',
@@ -248,6 +249,431 @@ do
   end
 
   _G.quarto = previous
+end
+
+io.stdout:write('# schema-check\n')
+
+do
+  -- The module reports through `logging`, reads `_schema.yml` through
+  -- `quarto.utils.resolve_path`, and takes its validator as an argument. The
+  -- first two are stood in for here, and the third is a stub, so the checks
+  -- below need neither a render nor a schema file on disk.
+  local check_mod = modules['schema-check']
+
+  --- Messages the module reported, in order, with the level it chose.
+  local recorded = {}
+
+  local previous_quarto = _G.quarto
+  local previous_exit = os.exit
+
+  --- Records an `os.exit` call rather than ending the run, so that a module
+  --- which stops a render is a failed check instead of a truncated report.
+  local exits = 0
+
+  local function install_stubs()
+    recorded = {}
+    _G.quarto = {
+      log = {
+        error = function(m) recorded[#recorded + 1] = { level = 'error', message = m } end,
+        warning = function(m) recorded[#recorded + 1] = { level = 'warning', message = m } end,
+        output = function(m) recorded[#recorded + 1] = { level = 'output', message = m } end,
+        debug = function(m) recorded[#recorded + 1] = { level = 'debug', message = m } end,
+      },
+      utils = {
+        resolve_path = function(path) return path end,
+      },
+    }
+  end
+
+  --- A validator with the three functions the module calls, plus the option
+  --- extraction it needs to read a document. `spec` decides what each returns.
+  --- @param spec table {err, schema, provided, valid, errors, warnings, defaults, call}
+  local function stub_validator(spec)
+    return {
+      load_schema = function() return spec.schema, spec.err end,
+      extract_meta_options = function() return spec.provided or {} end,
+      validate = function(values, _, options)
+        -- The module resolves the defaults with a second pass over an empty
+        -- table, which the real validator answers with the declared defaults
+        -- alone. The two passes are told apart by that empty table.
+        if next(values) == nil and options ~= nil and options.unknown == 'ignore' then
+          return true, {}, {}, spec.defaults or {}
+        end
+        return spec.valid ~= false, spec.errors or {}, spec.warnings or {}, spec.merged or {}
+      end,
+      -- The module discards the first return here, unlike on the options pass,
+      -- where `valid` gates whether the errors are reported at all. A finding
+      -- about a call is reported whatever the verdict, and the level it gets
+      -- comes from the kind of finding rather than from the validator. So
+      -- `spec.call` carries no `valid`: setting one would say nothing.
+      validate_shortcode = function(name, args, kwargs, entry)
+        -- Kept so a check can read what the module handed over, not only what
+        -- it did with the answer.
+        spec.seen = { name = name, args = args, kwargs = kwargs, entry = entry }
+        local call = spec.call or {}
+        return true, call.errors or {}, call.warnings or {},
+          { arguments = {}, attributes = {} }
+      end,
+    }
+  end
+
+  --- The one shortcode entry every call check below is made against.
+  local ICONIFY_ENTRY = {
+    arguments = {
+      { name = 'icon', required = true, examples = { 'fa6-brands:github' } },
+    },
+    attributes = {
+      size = { type = 'string' },
+    },
+  }
+
+  local function schema_with(options, shortcodes)
+    return { options = options or {}, shortcodes = shortcodes or {} }
+  end
+
+  os.exit = function() exits = exits + 1 end
+
+  -- An unreadable schema is reported once, and the checker then does nothing.
+  do
+    install_stubs()
+    local ok, checker = pcall(check_mod.new,
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    check(ok, 'an unreadable schema does not raise', not ok and tostring(checker) or nil)
+    if ok then
+      equal(#recorded, 1, 'an unreadable schema is reported once')
+      equal(recorded[1] and recorded[1].level, 'error', 'an unreadable schema is an error')
+      equal(recorded[1] and recorded[1].message,
+        '[demo] Could not open schema file: _schema.yml',
+        'the validator message is reported unchanged, with the extension name')
+
+      local defaults_ok, defaults, resolved = pcall(checker.options, checker, {})
+      check(defaults_ok and type(defaults) == 'table' and next(defaults) == nil,
+        'without a schema `options` returns an empty table',
+        defaults_ok and tostring(defaults) or ('raised: ' .. tostring(defaults)))
+      equal(resolved, nil, 'without a schema `options` resolves nothing')
+
+      local call_ok, err = pcall(checker.call, checker, 'iconify', {}, {})
+      check(call_ok, 'without a schema `call` does not raise',
+        not call_ok and tostring(err) or nil)
+      equal(#recorded, 1, 'without a schema nothing further is reported')
+    end
+  end
+
+  -- `options` hands back what the schema declares as its defaults.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      defaults = { set = 'octicon' },
+    }), 'demo')
+    local defaults = checker:options({})
+    equal(defaults.set, 'octicon', '`options` returns the resolved defaults')
+    equal(#recorded, 0, 'a valid configuration reports nothing')
+  end
+
+  -- The configuration is checked once per render, so an extension may ask for
+  -- the defaults on every shortcode without filling the log. The stub reports
+  -- a finding on every pass, so a second check would show as a second message.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      provided = { bogus = 'x' },
+      warnings = { 'bogus: is not a recognised key and was ignored.' },
+      defaults = { set = 'octicon' },
+    }), 'demo')
+
+    local first = checker:options({})
+    equal(first.set, 'octicon', '`options` returns the defaults on the first call')
+    equal(#recorded, 1, 'the first call reports what it finds')
+
+    local again = checker:options({})
+    equal(again.set, 'octicon', '`options` returns the same defaults when asked again')
+    equal(#recorded, 1, '`options` checks the configuration once per render')
+  end
+
+  -- The defaults are handed over as a copy. This module is vendored into many
+  -- extensions, and it publishes the defaults on a convenient path, so a
+  -- caller writing a computed fallback into what it received is an easy and
+  -- quiet mistake. The write must stay with the caller that made it.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      defaults = { set = 'octicon' },
+    }), 'demo')
+
+    local first = checker:options({})
+    first.set = 'poisoned'
+    first.added = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second ~= first, 'each call returns its own defaults table',
+      'the same table came back twice')
+    equal(second.set, 'octicon', 'writing to the returned defaults leaves the checker unchanged')
+    equal(second.added, nil, 'a key added to the returned defaults does not reach the checker')
+    equal(resolved.defaults.set, 'octicon', 'the resolved defaults are unchanged as well')
+  end
+
+  -- A default is not always a scalar. One extension in the fleet declares
+  -- `default: []` for an array option, and another a mapping default, so the
+  -- copy has to go all the way down. A caller inserting into the array it
+  -- received must not change what the checker holds.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({
+        ['page-exclude'] = { type = 'array', default = {} },
+        ['slide-change-cue'] = { type = 'object', default = { visual = true } },
+      }),
+      defaults = {
+        ['page-exclude'] = { '/drafts/*' },
+        ['slide-change-cue'] = { visual = true, audio = false },
+      },
+    }), 'demo')
+
+    local first = checker:options({})
+    table.insert(first['page-exclude'], 'poisoned')
+    first['slide-change-cue'].visual = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second['page-exclude'] ~= first['page-exclude'],
+      'each call returns its own array default', 'the same array came back twice')
+    equal(#second['page-exclude'], 1,
+      'inserting into a returned array leaves the checker unchanged')
+    equal(second['page-exclude'][1], '/drafts/*', 'the array default keeps its own entry')
+    equal(second['slide-change-cue'].visual, true,
+      'writing into a returned mapping default leaves the checker unchanged')
+    equal(resolved.defaults['page-exclude'][1], '/drafts/*',
+      "the checker's own array default is unchanged")
+    equal(#resolved.defaults['page-exclude'], 1,
+      "the checker's own array default gained no entry")
+  end
+
+  -- The recursion is unbounded, not one level below the top container. The
+  -- two defaults above both sit one level down and hold scalars, so they
+  -- cannot tell "recurse once more" from "recurse all the way".
+  --
+  -- Nothing in the fleet nests a default three deep today, so this covers the
+  -- format rather than a schema in play. That is deliberate, and it is the
+  -- same argument that settled the depth: the vocabulary allows an array of
+  -- objects whose properties are objects, so the shape is reachable by a
+  -- schema nobody has written yet.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ entries = { type = 'array' } }),
+      defaults = {
+        entries = { { name = 'first', options = { colour = 'blue' } } },
+      },
+    }), 'demo')
+
+    local first = checker:options({})
+    first.entries[1].name = 'poisoned'
+    first.entries[1].options.colour = 'poisoned'
+
+    local second, resolved = checker:options({})
+    check(second.entries[1] ~= first.entries[1],
+      'each call returns its own array element', 'the same element came back twice')
+    check(second.entries[1].options ~= first.entries[1].options,
+      'each call returns its own nested mapping', 'the same mapping came back twice')
+    equal(second.entries[1].name, 'first',
+      'a write two levels down leaves the checker unchanged')
+    equal(second.entries[1].options.colour, 'blue',
+      'a write three levels down leaves the checker unchanged')
+    equal(resolved.defaults.entries[1].options.colour, 'blue',
+      "the checker's own value three levels down is unchanged")
+  end
+
+  -- The validator is injected from an independent source, so a schema without
+  -- every section this module reads must not end the render.
+  do
+    install_stubs()
+    local ok, err = pcall(function()
+      local checker = check_mod.new(stub_validator({ schema = {} }), 'demo')
+      checker:options({})
+      checker:call('iconify', {}, {})
+    end)
+    check(ok, 'a schema with no sections does not raise', not ok and tostring(err) or nil)
+  end
+
+  -- An option the schema rejects is an error: it names a value the extension
+  -- cannot use, and the author has to correct it.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ inline = { type = 'boolean' } }),
+      provided = { inline = 'sometimes' },
+      valid = false,
+      errors = { 'inline: must be of type "boolean", got "string".' },
+      defaults = {},
+    }), 'demo')
+    checker:options({})
+    equal(#recorded, 1, 'a rejected option is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a rejected option is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] inline: must be of type "boolean", got "string".',
+      'the rejected option message is reported unchanged')
+  end
+
+  -- The second return carries what the document set as well as what it
+  -- resolved to. An extension needs `provided` to tell a value the author
+  -- wrote from a key they never set, which no default can answer: a default is
+  -- always present once declared, so `merged` alone cannot tell the two apart.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({
+        inline = { type = 'boolean', default = true },
+        set = { type = 'string', default = 'octicon' },
+      }),
+      provided = { inline = false },
+      merged = { inline = false, set = 'octicon' },
+      defaults = { inline = true, set = 'octicon' },
+    }), 'demo')
+
+    local defaults, resolved = checker:options({})
+    equal(defaults.inline, true, '`options` still returns the defaults first')
+    check(type(resolved) == 'table', '`options` returns a resolved table second',
+      tostring(resolved))
+    equal(resolved.defaults.inline, true, 'the resolved table carries the defaults')
+    equal(resolved.merged.inline, false, 'the resolved table carries the merged values')
+    equal(resolved.provided.inline, false, '`provided` holds a value the document wrote')
+    equal(resolved.provided.set, nil, '`provided` omits a key the document never set')
+
+    -- Without `provided` these two cases are the same table entry, which is
+    -- the fault this return exists to prevent.
+    check(resolved.provided.inline ~= nil and resolved.provided.set == nil,
+      '`provided` tells a written value from an absent key',
+      string.format('inline=%s set=%s', tostring(resolved.provided.inline),
+        tostring(resolved.provided.set)))
+    equal(resolved.merged.set, 'octicon',
+      'an absent key still resolves to its default in `merged`')
+
+    local again_defaults, again_resolved = checker:options({})
+    equal(again_defaults.inline, true, 'the cached call returns the same defaults')
+    check(again_resolved == resolved, 'the cached call returns the same resolved table',
+      tostring(again_resolved))
+  end
+
+  -- An unknown option is advice, not a failure.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string' } }),
+      warnings = { 'bogus: is not a recognised key and was ignored.' },
+      defaults = {},
+    }), 'demo')
+    local ok, err = pcall(checker.options, checker, {})
+    check(ok, '`options` does not raise on an unknown option', not ok and tostring(err) or nil)
+    equal(#recorded, 1, 'an unknown option is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning', 'an unknown option is a warning')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] bogus: is not a recognised key and was ignored.',
+      'the unknown option message is reported unchanged')
+  end
+
+  -- An unknown shortcode attribute is advice too.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { warnings = { 'iconify.bogus: is not a recognised key and was ignored.' } },
+    }), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' }, { bogus = 'x' })
+    equal(#recorded, 1, 'an unknown attribute is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning', 'an unknown attribute is a warning')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] iconify.bogus: is not a recognised key and was ignored.',
+      'the unknown attribute message is reported unchanged')
+  end
+
+  -- An attribute the schema rejects is a warning, not an error, because the
+  -- rendered output does not change because of it. The call gives its required
+  -- argument, so the missing argument path does not take over the reporting.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { errors = { 'iconify.size: must be one of: 1x, 2x, got 3z.' } },
+    }), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' }, { size = '3z' })
+    equal(#recorded, 1, 'a rejected attribute is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning',
+      'a rejected attribute is a warning, because the output does not change')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] iconify.size: must be one of: 1x, 2x, got 3z.',
+      'the rejected attribute message is reported unchanged')
+  end
+
+  -- A quoted value checks as the same thing as an unquoted one. Quarto's
+  -- metadata parser hands `aria-hidden='true'` over with its quotes attached,
+  -- and without the strip the value is checked with them.
+  do
+    install_stubs()
+    local spec = {
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = {},
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' },
+      { ['aria-hidden'] = "'true'", size = '2x' })
+
+    equal(spec.seen and spec.seen.kwargs['aria-hidden'], 'true',
+      'a surrounding quote pair is stripped before the check')
+    equal(spec.seen and spec.seen.kwargs.size, '2x',
+      'an unquoted value reaches the validator unchanged')
+    equal(spec.seen and spec.seen.args[1], 'fa6-brands:github',
+      'a positional argument reaches the validator as a string')
+    equal(#recorded, 0, 'a call the schema accepts reports nothing')
+  end
+
+  -- A kind with no severity is a fault in the module, and it says so rather
+  -- than passing the finding off at a level nobody chose.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({ schema = schema_with({}) }), 'demo')
+    local ok, err = pcall(checker._report, checker, 'not-a-kind', 'a finding')
+    check(ok, 'an unmapped severity does not raise', not ok and tostring(err) or nil)
+    equal(recorded[1] and recorded[1].level, 'error', 'an unmapped severity is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] schema-check has no severity for "not-a-kind": a finding',
+      'an unmapped severity names the kind it could not report')
+  end
+
+  -- A missing required argument is the one call finding that is an error,
+  -- because without it the shortcode renders nothing.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { errors = { 'iconify argument 1 ("icon") is required but was not provided.' } },
+    }), 'demo')
+    checker:call('iconify', {}, {})
+    equal(#recorded, 1, 'a missing required argument is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a missing required argument is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] The "iconify" shortcode needs its "icon" argument. ' ..
+      'For example: {{< iconify fa6-brands:github >}}.',
+      'the missing argument message names the shortcode, the argument and an example')
+  end
+
+  -- A shortcode the schema does not declare is not this extension's business.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { warnings = { 'should not be reached' } },
+    }), 'demo')
+    checker:call('elsewhere', {}, {})
+    equal(#recorded, 0, 'a shortcode absent from the schema is not checked')
+  end
+
+  -- Nothing on any path ends the render.
+  equal(exits, 0, 'no path calls `os.exit`')
+
+  os.exit = previous_exit
+  _G.quarto = previous_quarto
 end
 
 io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
