@@ -17,6 +17,7 @@ They are meant to be vendored. Quarto ships no package manager for Lua, so an ex
 | `metadata.lua` | Reads extension configuration out of document metadata. |
 | `pandoc-helpers.lua` | Builds Pandoc elements and detects the output format. |
 | `paths.lua` | Resolves a path relative to the project and checks a URI's file type. |
+| `schema-check.lua` | Checks a document and a shortcode call against the extension's `_schema.yml`. |
 | `string.lua` | Splits, trims, and escapes for HTML, LaTeX, Typst, JavaScript, and Lua. |
 
 ## Usage
@@ -28,6 +29,14 @@ local str = require(quarto.utils.resolve_path('_modules/string.lua'):gsub('%.lua
 ```
 
 A module that needs another one finds it in the same directory, so copy them together.
+
+`schema-check.lua` takes its validator as an argument rather than loading one, so an extension can vendor the two from different sources:
+
+```lua
+local checker = check.new(schema, 'iconify')
+local defaults = checker:options(meta)
+checker:call('iconify', args, kwargs)
+```
 
 ## Development
 

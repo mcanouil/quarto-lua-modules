@@ -1,0 +1,271 @@
+--- MC Schema Check - Runtime schema checks for Quarto extensions
+--- @module "schema-check"
+--- @license MIT
+--- @copyright 2026 Mickaël Canouil
+--- @author Mickaël Canouil
+--- @version 2.0.0
+---
+--- Holds the wiring that every extension would otherwise copy: read
+--- `_schema.yml` once, check the document configuration against it, check one
+--- shortcode call against it, and report what it finds through `logging`.
+---
+--- The validator arrives as an argument rather than through `require`. A
+--- vendored copy of this module then knows nothing about where the validator
+--- was vendored, so the two sources stay independent.
+---
+--- Nothing here stops a render. A schema is configuration, and a fault in the
+--- configuration must not remove the document.
+
+local M = {}
+
+--- Load a sibling module from the same directory as this file.
+--- @param filename string The sibling module filename (e.g., 'string.lua')
+--- @return table The loaded module
+local function load_sibling(filename)
+  local source = debug.getinfo(1, 'S').source:sub(2)
+  local dir = source:match('(.*[/\\])') or ''
+  return require((dir .. filename):gsub('%.lua$', ''))
+end
+
+--- Load required modules
+local log = load_sibling('logging.lua')
+local str = load_sibling('string.lua')
+
+-- ============================================================================
+-- SEVERITY
+-- ============================================================================
+
+--- The level each kind of finding is reported at. This is the only place a
+--- severity is decided, so a later change to what an extension must correct is
+--- a change to this table and nothing else.
+---
+--- The current policy reports and never stops a render. A finding is a warning,
+--- with two exceptions. An unreadable schema is an error, because no check runs
+--- after it. A missing required argument is an error, because the shortcode
+--- renders nothing without it, which is the one finding that changes the
+--- document.
+---
+--- A rejected document option keeps the error level it has today: it names a
+--- value the extension cannot use, and the author has to correct it.
+--- @type table<string, string>
+local SEVERITY = {
+  schema = 'error',
+  option_error = 'error',
+  option_warning = 'warning',
+  call_error = 'warning',
+  call_warning = 'warning',
+  missing_argument = 'error',
+}
+
+--- The reporting function for each level.
+--- @type table<string, function>
+local REPORTERS = {
+  error = log.log_error,
+  warning = log.log_warning,
+}
+
+-- ============================================================================
+-- PRIVATE HELPERS
+-- ============================================================================
+
+--- Read an attribute value with a surrounding quote pair removed.
+--- Quarto's body parser strips those quotes before the value reaches the
+--- shortcode, but the parser it uses for a text or attribute string hands the
+--- raw token over instead, so `aria-hidden='true'` arrives as the five
+--- character string `'true'`. Stripping here is what makes a quoted and an
+--- unquoted value check as the same thing.
+--- @param kwargs table<string, any> Key-value options for the call
+--- @param key string The attribute name to read
+--- @return string
+local function attr_value(kwargs, key)
+  --- @type string
+  local value = str.stringify(kwargs[key])
+  --- @type string
+  local quote = value:sub(1, 1)
+  if #value > 1 and (quote == '"' or quote == "'") and value:sub(-1) == quote then
+    return value:sub(2, -2)
+  end
+  return value
+end
+
+--- Flatten a call's named options to plain strings for the validator.
+--- @param kwargs table<string, any> Key-value options for the call
+--- @return table<string, string>
+local function plain_kwargs(kwargs)
+  --- @type table<string, string>
+  local plain = {}
+  for key in pairs(kwargs) do
+    plain[tostring(key)] = attr_value(kwargs, key)
+  end
+  return plain
+end
+
+-- ============================================================================
+-- CHECKER
+-- ============================================================================
+
+--- @class Checker
+--- @field validator table The validator the caller injected
+--- @field extension string The extension name every message carries
+--- @field schema table|nil The parsed schema, nil when it could not be read
+--- @field defaults table<string, any> The defaults the schema declares
+--- @field options_checked boolean Whether the configuration was already checked
+local Checker = {}
+Checker.__index = Checker
+
+--- Report one finding at the level its kind is mapped to.
+--- @param kind string A key of `SEVERITY`
+--- @param message string The message to report
+--- @return nil
+function Checker:_report(kind, message)
+  --- @type function
+  local reporter = REPORTERS[SEVERITY[kind]] or log.log_warning
+  reporter(self.extension, message)
+end
+
+--- Check the document configuration and return the defaults the schema
+--- declares. The check runs once, so an extension can ask for the defaults on
+--- every shortcode without repeating the messages.
+---
+--- The defaults come from a second pass over an empty table, which yields the
+--- declared defaults alone. An extension needs them anyway, and reading them
+--- back from the schema keeps `_schema.yml` the one place they are written.
+--- @param meta table<string, any> Document metadata
+--- @return table<string, any> The defaults, empty when there is no schema
+function Checker:options(meta)
+  if self.options_checked then
+    return self.defaults
+  end
+  self.options_checked = true
+
+  --- @type table|nil
+  local loaded = self.schema
+  if loaded == nil or loaded.options == nil or next(loaded.options) == nil then
+    return self.defaults
+  end
+
+  --- @type table<string, any>
+  local provided = self.validator.extract_meta_options(meta, self.extension)
+  local valid, errors, warnings = self.validator.validate(provided, loaded.options)
+
+  for _, message in ipairs(warnings) do
+    self:_report('option_warning', message)
+  end
+  if not valid then
+    for _, message in ipairs(errors) do
+      self:_report('option_error', message)
+    end
+  end
+
+  local _, _, _, defaults = self.validator.validate({}, loaded.options, { unknown = 'ignore' })
+  self.defaults = defaults or {}
+
+  return self.defaults
+end
+
+--- Check one shortcode call against its entry in the schema.
+--- This reports only. Nothing about the rendered output changes, so an
+--- unrecognised attribute is surfaced rather than dropped.
+--- @param name string Shortcode name
+--- @param args table<integer, any> Positional arguments
+--- @param kwargs table<string, any> Key-value options for the call
+--- @return nil
+function Checker:call(name, args, kwargs)
+  --- @type table|nil
+  local loaded = self.schema
+  if loaded == nil then return end
+
+  --- @type table|nil
+  local entry = loaded.shortcodes and loaded.shortcodes[name]
+  if entry == nil then return end
+
+  args = args or {}
+  kwargs = kwargs or {}
+
+  --- @type table<integer, string>
+  local positional = {}
+  for index, value in ipairs(args) do
+    positional[index] = str.stringify(value)
+  end
+
+  local _, errors, warnings = self.validator.validate_shortcode(
+    name, positional, plain_kwargs(kwargs), entry)
+
+  for _, message in ipairs(warnings) do
+    self:_report('call_warning', message)
+  end
+
+  -- A required argument that is absent is read here rather than out of the
+  -- validator's findings, because the validator reports a nested argument
+  -- fault under one `arguments` entry, which cannot tell a missing argument
+  -- from a malformed one.
+  --- @type table<integer, table>
+  local missing = {}
+  for index, argument in ipairs(entry.arguments or {}) do
+    if argument.required == true and str.is_empty(positional[index]) then
+      missing[#missing + 1] = argument
+    end
+  end
+
+  if #missing > 0 then
+    -- The only message about the missing argument: the schema's own `required`
+    -- wording says the same thing, and reporting both would state one fault
+    -- twice at two severities. Attribute warnings above still stand, and every
+    -- other finding about this call is secondary to there being no output.
+    for _, argument in ipairs(missing) do
+      --- The example comes from the schema, so that each shortcode carries its
+      --- own rather than this message naming one shortcode for all of them.
+      --- @type string
+      local advice = ''
+      local example = type(argument.examples) == 'table' and argument.examples[1] or nil
+      if example ~= nil then
+        advice = string.format(' For example: {{< %s %s >}}.', name, tostring(example))
+      end
+      self:_report('missing_argument', string.format(
+        'The "%s" shortcode needs its "%s" argument.%s', name, argument.name, advice))
+    end
+    return
+  end
+
+  for _, message in ipairs(errors) do
+    self:_report('call_error', message)
+  end
+end
+
+-- ============================================================================
+-- PUBLIC API
+-- ============================================================================
+
+--- Build a checker for one extension, reading `_schema.yml` once.
+--- A schema that cannot be read is reported, and the checker it returns does
+--- nothing: `options` gives an empty table and `call` gives no message.
+--- @param validator table The validator, with `load_schema`, `validate`,
+---   `validate_shortcode` and `extract_meta_options`
+--- @param extension_name string The extension name every message carries
+--- @return Checker
+--- @usage local checker = M.new(schema, 'iconify')
+function M.new(validator, extension_name)
+  --- @type Checker
+  local checker = setmetatable({
+    validator = validator,
+    extension = extension_name,
+    schema = nil,
+    defaults = {},
+    options_checked = false,
+  }, Checker)
+
+  local loaded, err = validator.load_schema(quarto.utils.resolve_path('_schema.yml'))
+  if err then
+    checker:_report('schema', err)
+  else
+    checker.schema = loaded
+  end
+
+  return checker
+end
+
+-- ============================================================================
+-- MODULE EXPORT
+-- ============================================================================
+
+return M

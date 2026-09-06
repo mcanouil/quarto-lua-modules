@@ -78,6 +78,7 @@ local EXPECTED = {
     'is_object_empty', 'is_type_simple', 'is_function_userdata', 'get_value',
     'attributes_to_table' },
   paths = { 'resolve_project_path', 'has_extension', 'is_markdown' },
+  ['schema-check'] = { 'new' },
   string = { 'stringify', 'is_empty', 'escape_pattern', 'split', 'trim', 'to_string', 'strip_surrounding',
     'strip_edges', 'find_bracketed_content', 'escape_latex', 'escape_typst',
     'escape_typst_string', 'escape_js_string', 'escape_lua_pattern', 'escape_html',
@@ -248,6 +249,190 @@ do
   end
 
   _G.quarto = previous
+end
+
+io.stdout:write('# schema-check\n')
+
+do
+  -- The module reports through `logging`, reads `_schema.yml` through
+  -- `quarto.utils.resolve_path`, and takes its validator as an argument. The
+  -- first two are stood in for here, and the third is a stub, so the checks
+  -- below need neither a render nor a schema file on disk.
+  local check_mod = modules['schema-check']
+
+  --- Messages the module reported, in order, with the level it chose.
+  local recorded = {}
+
+  local previous_quarto = _G.quarto
+  local previous_exit = os.exit
+
+  --- Records an `os.exit` call rather than ending the run, so that a module
+  --- which stops a render is a failed check instead of a truncated report.
+  local exits = 0
+
+  local function install_stubs()
+    recorded = {}
+    _G.quarto = {
+      log = {
+        error = function(m) recorded[#recorded + 1] = { level = 'error', message = m } end,
+        warning = function(m) recorded[#recorded + 1] = { level = 'warning', message = m } end,
+        output = function(m) recorded[#recorded + 1] = { level = 'output', message = m } end,
+        debug = function(m) recorded[#recorded + 1] = { level = 'debug', message = m } end,
+      },
+      utils = {
+        resolve_path = function(path) return path end,
+      },
+    }
+  end
+
+  --- A validator with the three functions the module calls, plus the option
+  --- extraction it needs to read a document. `spec` decides what each returns.
+  --- @param spec table {err, schema, provided, valid, errors, warnings, defaults, call}
+  local function stub_validator(spec)
+    return {
+      load_schema = function() return spec.schema, spec.err end,
+      extract_meta_options = function() return spec.provided or {} end,
+      validate = function(values, _, options)
+        -- The module resolves the defaults with a second pass over an empty
+        -- table, which the real validator answers with the declared defaults
+        -- alone. The two passes are told apart by that empty table.
+        if next(values) == nil and options ~= nil and options.unknown == 'ignore' then
+          return true, {}, {}, spec.defaults or {}
+        end
+        return spec.valid ~= false, spec.errors or {}, spec.warnings or {}, spec.merged or {}
+      end,
+      validate_shortcode = function()
+        local call = spec.call or {}
+        return call.valid ~= false, call.errors or {}, call.warnings or {},
+          { arguments = {}, attributes = {} }
+      end,
+    }
+  end
+
+  --- The one shortcode entry every call check below is made against.
+  local ICONIFY_ENTRY = {
+    arguments = {
+      { name = 'icon', required = true, examples = { 'fa6-brands:github' } },
+    },
+    attributes = {
+      size = { type = 'string' },
+    },
+  }
+
+  local function schema_with(options, shortcodes)
+    return { options = options or {}, shortcodes = shortcodes or {} }
+  end
+
+  os.exit = function() exits = exits + 1 end
+
+  -- An unreadable schema is reported once, and the checker then does nothing.
+  do
+    install_stubs()
+    local ok, checker = pcall(check_mod.new,
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    check(ok, 'an unreadable schema does not raise', not ok and tostring(checker) or nil)
+    if ok then
+      equal(#recorded, 1, 'an unreadable schema is reported once')
+      equal(recorded[1] and recorded[1].level, 'error', 'an unreadable schema is an error')
+      equal(recorded[1] and recorded[1].message,
+        '[demo] Could not open schema file: _schema.yml',
+        'the validator message is reported unchanged, with the extension name')
+
+      local defaults_ok, defaults = pcall(checker.options, checker, {})
+      check(defaults_ok and type(defaults) == 'table' and next(defaults) == nil,
+        'without a schema `options` returns an empty table',
+        defaults_ok and tostring(defaults) or ('raised: ' .. tostring(defaults)))
+
+      local call_ok, err = pcall(checker.call, checker, 'iconify', {}, {})
+      check(call_ok, 'without a schema `call` does not raise',
+        not call_ok and tostring(err) or nil)
+      equal(#recorded, 1, 'without a schema nothing further is reported')
+    end
+  end
+
+  -- `options` hands back what the schema declares as its defaults.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      defaults = { set = 'octicon' },
+    }), 'demo')
+    local defaults = checker:options({})
+    equal(defaults.set, 'octicon', '`options` returns the resolved defaults')
+    equal(#recorded, 0, 'a valid configuration reports nothing')
+
+    -- The second call must not repeat the checks, so an extension may ask for
+    -- the defaults on every shortcode without filling the log.
+    local again = checker:options({})
+    equal(again.set, 'octicon', '`options` returns the same defaults when asked again')
+    equal(#recorded, 0, '`options` checks the configuration once per render')
+  end
+
+  -- An unknown option is advice, not a failure.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ set = { type = 'string' } }),
+      warnings = { 'bogus: is not a recognised key and was ignored.' },
+      defaults = {},
+    }), 'demo')
+    local ok, err = pcall(checker.options, checker, {})
+    check(ok, '`options` does not raise on an unknown option', not ok and tostring(err) or nil)
+    equal(#recorded, 1, 'an unknown option is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning', 'an unknown option is a warning')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] bogus: is not a recognised key and was ignored.',
+      'the unknown option message is reported unchanged')
+  end
+
+  -- An unknown shortcode attribute is advice too.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { warnings = { 'iconify.bogus: is not a recognised key and was ignored.' } },
+    }), 'demo')
+    checker:call('iconify', { 'fa6-brands:github' }, { bogus = 'x' })
+    equal(#recorded, 1, 'an unknown attribute is reported once')
+    equal(recorded[1] and recorded[1].level, 'warning', 'an unknown attribute is a warning')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] iconify.bogus: is not a recognised key and was ignored.',
+      'the unknown attribute message is reported unchanged')
+  end
+
+  -- A missing required argument is the one call finding that is an error,
+  -- because without it the shortcode renders nothing.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { valid = false, errors = { 'iconify argument 1 ("icon") is required but was not provided.' } },
+    }), 'demo')
+    checker:call('iconify', {}, {})
+    equal(#recorded, 1, 'a missing required argument is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a missing required argument is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] The "iconify" shortcode needs its "icon" argument. ' ..
+      'For example: {{< iconify fa6-brands:github >}}.',
+      'the missing argument message names the shortcode, the argument and an example')
+  end
+
+  -- A shortcode the schema does not declare is not this extension's business.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
+      call = { warnings = { 'should not be reached' } },
+    }), 'demo')
+    checker:call('elsewhere', {}, {})
+    equal(#recorded, 0, 'a shortcode absent from the schema is not checked')
+  end
+
+  -- Nothing on any path ends the render.
+  equal(exits, 0, 'no path calls `os.exit`')
+
+  os.exit = previous_exit
+  _G.quarto = previous_quarto
 end
 
 io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
