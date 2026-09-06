@@ -301,12 +301,17 @@ do
         end
         return spec.valid ~= false, spec.errors or {}, spec.warnings or {}, spec.merged or {}
       end,
+      -- The module discards the first return here, unlike on the options pass,
+      -- where `valid` gates whether the errors are reported at all. A finding
+      -- about a call is reported whatever the verdict, and the level it gets
+      -- comes from the kind of finding rather than from the validator. So
+      -- `spec.call` carries no `valid`: setting one would say nothing.
       validate_shortcode = function(name, args, kwargs, entry)
         -- Kept so a check can read what the module handed over, not only what
         -- it did with the answer.
         spec.seen = { name = name, args = args, kwargs = kwargs, entry = entry }
         local call = spec.call or {}
-        return call.valid ~= false, call.errors or {}, call.warnings or {},
+        return true, call.errors or {}, call.warnings or {},
           { arguments = {}, attributes = {} }
       end,
     }
@@ -520,10 +525,7 @@ do
     install_stubs()
     local checker = check_mod.new(stub_validator({
       schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
-      call = {
-        valid = false,
-        errors = { 'iconify.size: must be one of: 1x, 2x, got 3z.' },
-      },
+      call = { errors = { 'iconify.size: must be one of: 1x, 2x, got 3z.' } },
     }), 'demo')
     checker:call('iconify', { 'fa6-brands:github' }, { size = '3z' })
     equal(#recorded, 1, 'a rejected attribute is reported once')
@@ -575,7 +577,7 @@ do
     install_stubs()
     local checker = check_mod.new(stub_validator({
       schema = schema_with({}, { iconify = ICONIFY_ENTRY }),
-      call = { valid = false, errors = { 'iconify argument 1 ("icon") is required but was not provided.' } },
+      call = { errors = { 'iconify argument 1 ("icon") is required but was not provided.' } },
     }), 'demo')
     checker:call('iconify', {}, {})
     equal(#recorded, 1, 'a missing required argument is reported once')
