@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.1.0 (2026-09-06)
+
 - feat: Add the `schema-check` module. It checks a document and a shortcode call against the extension's `_schema.yml`, and it reports what it finds.
 
 ## 2.0.0 (2026-09-05)
