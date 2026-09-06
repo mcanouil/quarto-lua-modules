@@ -206,9 +206,22 @@ jobs:
     env:
       VERSION: ${{ needs.bump-version.outputs.version }}
     steps:
+      # The tag and the release carry an author. Created with the workflow token
+      # they would name github-actions[bot], and the release event they raise
+      # would start nothing. The shared action resolves the app token, and falls
+      # back to the workflow token where the app credentials are absent.
+      - name: Setup Git user
+        uses: mcanouil/quarto-workflows/.github/actions/setup-git-user@v2
+        id: setup-git-user
+        with:
+          gh-app-id: ${{ vars.APP_ID }}
+          app-key: ${{ secrets.APP_KEY }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout the merged bump
         uses: actions/checkout@v7
         with:
+          token: ${{ steps.setup-git-user.outputs.token }}
           ref: ${{ needs.bump-version.outputs.merge_sha }}
 
       - name: Setup Quarto
@@ -228,7 +241,7 @@ jobs:
 
       - name: Create the release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.setup-git-user.outputs.token }}
           RELEASE_NOTES: ${{ needs.bump-version.outputs.release_notes }}
           MERGE_SHA: ${{ needs.bump-version.outputs.merge_sha }}
         run: |
