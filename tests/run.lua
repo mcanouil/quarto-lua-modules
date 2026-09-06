@@ -290,7 +290,12 @@ do
   --- @param spec table {err, schema, provided, valid, errors, warnings, defaults, call}
   local function stub_validator(spec)
     return {
-      load_schema = function() return spec.schema, spec.err end,
+      -- The path is kept so a check can read where the module went looking,
+      -- which is the whole of what the schema path argument decides.
+      load_schema = function(path)
+        spec.schema_path = path
+        return spec.schema, spec.err
+      end,
       extract_meta_options = function() return spec.provided or {} end,
       validate = function(values, _, options)
         -- The module resolves the defaults with a second pass over an empty
@@ -357,6 +362,65 @@ do
         not call_ok and tostring(err) or nil)
       equal(#recorded, 1, 'without a schema nothing further is reported')
     end
+  end
+
+  -- Where the schema is read from. `resolve_path` answers relative to the
+  -- entry point that is running, so an extension whose entry points sit in a
+  -- subdirectory never finds a schema named `_schema.yml`. The third argument
+  -- names the file instead, and its absence has to leave every existing two
+  -- argument caller reading exactly what it read before.
+  do
+    install_stubs()
+    local spec = { schema = schema_with({}) }
+    check_mod.new(stub_validator(spec), 'demo')
+    equal(spec.schema_path, '_schema.yml', 'two arguments still read `_schema.yml`')
+    equal(#recorded, 0, 'two arguments report nothing')
+  end
+
+  do
+    install_stubs()
+    local spec = { schema = schema_with({}) }
+    check_mod.new(stub_validator(spec), 'demo', '../_schema.yml')
+    equal(spec.schema_path, '../_schema.yml', 'a third argument names the schema to read')
+    equal(#recorded, 0, 'a third argument reports nothing')
+  end
+
+  -- The given path is resolved the same way the default is, so a caller writes
+  -- a path relative to its own entry point rather than an absolute one. The
+  -- stub above answers `resolve_path` with the path unchanged, which cannot
+  -- tell a resolved path from one passed straight through.
+  do
+    install_stubs()
+    _G.quarto.utils.resolve_path = function(path)
+      return '/project/_extensions/demo/filters/' .. path
+    end
+    local spec = { schema = schema_with({}) }
+    check_mod.new(stub_validator(spec), 'demo', '../_schema.yml')
+    equal(spec.schema_path, '/project/_extensions/demo/filters/../_schema.yml',
+      'the given path is resolved before it is read')
+  end
+
+  -- A path that names nothing is the finding an unreadable `_schema.yml`
+  -- already is: reported once, and the checker then does nothing.
+  do
+    install_stubs()
+    local spec = { err = 'Could not open schema file: ../_schema.yml' }
+    local checker = check_mod.new(stub_validator(spec), 'demo', '../_schema.yml')
+    equal(spec.schema_path, '../_schema.yml',
+      'a schema that cannot be read was looked for at the given path')
+    equal(#recorded, 1, 'a schema absent from the given path is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      'a schema absent from the given path is an error')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] Could not open schema file: ../_schema.yml',
+      'the validator message names the path it was given')
+
+    local defaults, resolved = checker:options({})
+    check(type(defaults) == 'table' and next(defaults) == nil,
+      'a checker built on a missing path returns an empty defaults table', tostring(defaults))
+    equal(resolved, nil, 'a checker built on a missing path resolves nothing')
+    checker:call('iconify', {}, {})
+    equal(#recorded, 1, 'a checker built on a missing path reports nothing further')
   end
 
   -- `options` hands back what the schema declares as its defaults.

@@ -41,6 +41,16 @@ checker:call('iconify', args, kwargs)
 `options` returns the schema defaults first.
 It returns `provided`, `merged` and `defaults` second, for an extension that has to tell a value the document wrote from a key it never set.
 
+`new` reads `_schema.yml` beside the entry point that runs.
+An extension whose entry points live in a subdirectory gives the path as a third argument:
+
+```lua
+local checker = check.new(validator, 'iconify', '../_schema.yml')
+```
+
+Build the checker at file scope, and not inside a shortcode handler.
+The schema is then read once for the render, and not once for each call.
+
 ## Development
 
 The modules run inside Quarto's Lua, and several of them call `pandoc.*`, so the tests run there too:
