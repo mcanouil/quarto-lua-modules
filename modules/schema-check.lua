@@ -102,10 +102,13 @@ end
 --- The copy exists so that a caller writing into what it received cannot
 --- change what every later reader of the same checker sees.
 ---
---- A default is whatever the schema declares, to any depth, and not only a
---- scalar. An extension declares `default: []` for an array option, and
---- another declares a mapping default, so a copy one level deep would hand two
---- callers the same inner table and leave the fault one level down.
+--- The depth comes from the schema format, not from the schemas written so
+--- far. The vocabulary allows `type: array` and `type: object`, and the
+--- validator compiles a declared `default` by coercing it against that type
+--- and returning it untouched once it already matches. Any option declaring a
+--- collection type with a literal default therefore resolves to a Lua table,
+--- at whatever depth the schema nests it, so a copy one level deep would hand
+--- two callers the same inner table and leave the fault one level down.
 ---
 --- A table already copied on this walk is reused rather than copied again,
 --- which keeps shared structure shared and makes a cycle terminate. A schema
