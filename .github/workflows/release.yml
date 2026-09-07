@@ -147,8 +147,9 @@ jobs:
           sleep 5
           gh pr merge "${PR_URL}" --auto --squash --delete-branch
 
-          # The tag has to point at the bump, not at the commit before it, or a
-          # released archive would carry the previous version in every header.
+          # The tag has to point at the bump, not at the commit before it, or
+          # the source at the tag would show the previous version in
+          # CITATION.cff and no section for the release in CHANGELOG.md.
           # Every field comes from one response: read separately they would
           # answer about different instants.
           MERGE_SHA=""
