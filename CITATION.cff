@@ -8,5 +8,5 @@ authors:
     orcid: "https://orcid.org/0000-0002-3396-4549"
 repository-code: "https://github.com/mcanouil/quarto-lua-modules"
 license: MIT
-date-released: "2026-09-06"
-version: 2.2.0
+date-released: "2026-09-07"
+version: 2.3.0
