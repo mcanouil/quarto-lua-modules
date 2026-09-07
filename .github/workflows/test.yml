@@ -1,17 +1,24 @@
 name: Test
 
+# CITATION.cff is here so that the release bump pull request, which touches
+# only CITATION.cff and CHANGELOG.md, still produces a check run. The tests do
+# not read the file. Auto-merge in release.yml waits for checks, and its guard
+# aborts a release when the pull request is blocked with none, so removing this
+# path would break every release the day `main` requires a status check.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "modules/**"
       - "tests/**"
+      - "CITATION.cff"
       - ".github/workflows/test.yml"
   push:
     branches: [main]
     paths:
       - "modules/**"
       - "tests/**"
+      - "CITATION.cff"
       - ".github/workflows/test.yml"
   workflow_dispatch:
 
