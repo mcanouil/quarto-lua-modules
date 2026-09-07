@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.3.0 (2026-09-07)
+
 - refactor: Remove the `@version` line from the header of every module. The release no longer stamps a version into a module, so the bytes of a module now change only when its code changes.
 
 ## 2.2.0 (2026-09-06)
