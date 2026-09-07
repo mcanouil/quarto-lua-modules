@@ -6,14 +6,12 @@ on:
     paths:
       - "modules/**"
       - "tests/**"
-      - "CITATION.cff"
       - ".github/workflows/test.yml"
   push:
     branches: [main]
     paths:
       - "modules/**"
       - "tests/**"
-      - "CITATION.cff"
       - ".github/workflows/test.yml"
   workflow_dispatch:
 
@@ -43,26 +41,3 @@ jobs:
       # subsumes a parse check, so there is no separate one.
       - name: Run the tests
         run: quarto pandoc lua tests/run.lua
-
-      # Checked here rather than at release time. The release rewrites these
-      # headers itself, so verifying them there only re-reads its own `sed`,
-      # and it would do so after the version bump had already merged, leaving
-      # `main` half-bumped with no tag. Drift arrives on a pull request, so it
-      # is caught on one.
-      - name: Check that every module declares the current version
-        run: |
-          set -euo pipefail
-          expected=$(grep '^version:' CITATION.cff | sed 's/version: //;s/"//g')
-          if [ -z "${expected}" ]; then
-            echo "::error file=CITATION.cff::No 'version:' field found."
-            exit 1
-          fi
-          status=0
-          for module in modules/*.lua; do
-            declared=$(grep -m1 '@version' "${module}" | sed 's/.*@version *//')
-            if [ "${declared}" != "${expected}" ]; then
-              echo "::error file=${module}::declares ${declared}, expected ${expected}"
-              status=1
-            fi
-          done
-          exit "${status}"

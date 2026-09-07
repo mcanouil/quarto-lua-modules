@@ -71,10 +71,10 @@ jobs:
 
           git checkout -B "${BRANCH}"
 
-          # CITATION.cff carries the version for the whole set. The modules are
-          # vendored into other repositories, where they lose every other trace
-          # of where they came from, so each one repeats the set's version in
-          # its own header.
+          # CITATION.cff carries the version for the whole set. A module does not
+          # repeat it: the vendoring manifest records the version an extension
+          # took, and a header stamped at each release changes the bytes of a
+          # module whose code did not change, which breaks content addressing.
           CURRENT=$(grep '^version:' CITATION.cff | sed 's/version: //;s/"//g' || true)
           if [ -z "${CURRENT}" ]; then
             echo "::error::No 'version:' field found in CITATION.cff."
@@ -96,8 +96,7 @@ jobs:
 
           sed -i "s/^version:.*/version: ${VERSION}/" CITATION.cff
           sed -i "s/^date-released:.*/date-released: \"${DATE}\"/" CITATION.cff
-          sed -i "s/^--- @version .*/--- @version ${VERSION}/" modules/*.lua
-          git add CITATION.cff modules
+          git add CITATION.cff
 
           # The changelog is flat: one conventional commit entry per line, with
           # no type headings, because the prefix already carries the type.
