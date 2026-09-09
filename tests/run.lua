@@ -834,6 +834,46 @@ do
     equal(#recorded, 0, 'with no `attributes` section nothing is reported')
   end
 
+  -- `_any` given as the group is one pass, not two. An extension that maps
+  -- every element onto the catch-all group would otherwise get every finding
+  -- of that group twice for each element it handed over.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, attributes = { ['_any'] = {} } },
+      groups = {
+        ['_any'] = { resolve = {}, warnings = { 'flag: is not a recognised key and was ignored.' } },
+      },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    checker:attributes({ flag = 'x' }, '_any')
+
+    equal(#spec.attr_calls, 1, '`_any` given as the group is checked once')
+    equal(#recorded, 1, '`_any` given as the group reports its finding once')
+  end
+
+  -- The validator is injected, so a copy older than this module can lack the
+  -- function this method needs. Calling it raises, and a raise here would
+  -- remove the document, which is the one thing this module promises not to do.
+  do
+    install_stubs()
+    local validator = stub_validator({
+      schema = { options = {}, shortcodes = {}, attributes = { modal = {} } },
+    })
+    validator.validate_attributes = nil
+    local checker = check_mod.new(validator, 'demo')
+
+    local given = { size = 'lg' }
+    local ok, merged = pcall(checker.attributes, checker, given, 'modal')
+    check(ok, 'a validator without `validate_attributes` does not raise',
+      not ok and tostring(merged) or nil)
+    check(ok and merged == given, 'the attributes are handed back unchanged',
+      'a different table')
+    equal(#recorded, 1, 'a validator without `validate_attributes` is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      'a validator that cannot check attributes is an error')
+  end
+
   -- A group that is not a string is the same caller fault `option` guards, and
   -- it is reported rather than looked up. `nil` is not that fault: an element
   -- with no group of its own still takes whatever `_any` declares.

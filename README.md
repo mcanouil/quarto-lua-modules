@@ -35,11 +35,19 @@ A module that needs another one finds it in the same directory, so copy them tog
 ```lua
 local checker = check.new(validator, 'iconify')
 local defaults, resolved = checker:options(meta)
+local inline = checker:option('inline')
+local attributes = checker:attributes(el.attributes, 'CodeBlock')
 checker:call('iconify', args, kwargs)
 ```
 
 `options` returns the schema defaults first.
 It returns `provided`, `merged` and `defaults` second, for an extension that has to tell a value the document wrote from a key it never set.
+
+`option` returns what the schema resolves one option to, after `options` has run.
+Read it rather than the document, so that the schema decides what counts as true and a key the document never set gives its declared default.
+
+`attributes` checks one element against the `attributes` section and returns what its attributes resolve to.
+Both the element's own group and `_any` apply, the named group last.
 
 `new` reads `_schema.yml` beside the entry point that runs.
 An extension whose entry points live in a subdirectory gives the path as a third argument:

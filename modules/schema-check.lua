@@ -15,8 +15,11 @@
 --- The validator arrives as an argument rather than through `require`. A
 --- vendored copy of this module then knows nothing about where the validator
 --- was vendored, so the two sources stay independent. The validator must
---- provide `load_schema`, `validate`, `validate_shortcode` and
---- `extract_meta_options`.
+--- provide `load_schema`, `validate`, `validate_shortcode`,
+--- `extract_meta_options` and `validate_attributes`.
+---
+--- A validator that lacks one of them is reported rather than called, because
+--- the two are vendored separately and a copy can be older than this module.
 ---
 --- Nothing here stops a render. A schema is configuration, and a fault in the
 --- configuration must not remove the document.
@@ -306,6 +309,9 @@ end
 --- This reports only. The attribute stays on the element whatever the schema
 --- says, so nothing about the rendered output changes, which is why a finding
 --- here is a warning as it is for a shortcode attribute.
+--- The attributes may arrive as Pandoc's `AttributeList` rather than as a
+--- table, which is what an element filter holds, so nothing here assumes a
+--- plain table. The validator reads them with `pairs`, which both answer.
 --- @param attributes table<string, any> The element's attributes
 --- @param group string|nil The element's own group, nil when it has none
 --- @return table<string, any>|nil resolved The attributes with the schema applied
@@ -316,6 +322,8 @@ function Checker:attributes(attributes, group)
     return nil
   end
 
+  attributes = attributes or {}
+
   --- @type table|nil
   local loaded = self.schema
   -- The validator is injected from an independent source, so the shape of what
@@ -325,9 +333,22 @@ function Checker:attributes(attributes, group)
     return attributes
   end
 
+  -- A validator older than this module satisfies the contract `new` documents
+  -- and still lacks this function. Calling it raises, and a raise removes the
+  -- document, which is the one thing this module promises not to do.
+  if type(self.validator.validate_attributes) ~= 'function' then
+    self:_report('misuse',
+      'schema-check: the validator provides no `validate_attributes`, so attributes were not checked')
+    return attributes
+  end
+
   --- @type table<string, any>
-  local resolved = attributes or {}
-  for _, name in ipairs(group == nil and { '_any' } or { '_any', group }) do
+  local resolved = attributes
+  -- `_any` is the group every element takes, so a caller that names it has
+  -- already asked for the only pass there is. Running the list would report
+  -- each of its findings twice for every element handed over.
+  local groups = (group == nil or group == '_any') and { '_any' } or { '_any', group }
+  for _, name in ipairs(groups) do
     local _, errors, warnings, merged =
       self.validator.validate_attributes(resolved, name, loaded)
     for _, message in ipairs(errors) do
@@ -424,7 +445,7 @@ end
 --- schema is, and the checker it builds belongs at file scope, so that the
 --- schema is read once for the render and not once for each call.
 --- @param validator table The validator, with `load_schema`, `validate`,
----   `validate_shortcode` and `extract_meta_options`
+---   `validate_shortcode`, `extract_meta_options` and `validate_attributes`
 --- @param extension_name string The extension name every message carries
 --- @param schema_path string|nil The schema to read, relative to the entry
 ---   point that is running. Defaults to `_schema.yml`.
