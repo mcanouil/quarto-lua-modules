@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- docs: State that `Checker:options` reads the metadata of its first call only. A later call returns what the first call resolved, so a caller that needs a second document checked builds a second checker.
+
 ## 2.3.0 (2026-09-07)
 
 - refactor: Remove the `@version` line from the header of every module. The release no longer stamps a version into a module, so the bytes of a module now change only when its code changes.

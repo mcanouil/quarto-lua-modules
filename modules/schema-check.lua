@@ -202,7 +202,16 @@ end
 --- The defaults are a fresh copy on every call, so a caller may treat them as
 --- its own. The tables inside the second return are the checker's, and every
 --- later reader of the same checker sees them, so they must not be written to.
---- @param meta table<string, any> Document metadata
+---
+--- Only the first call reads `meta`. A later call returns what the first one
+--- resolved, whatever it is handed. A caller that needs a second document
+--- checked builds a second checker.
+---
+--- The argument cannot be read on a later call without losing the single check
+--- this function promises. Quarto hands a shortcode a new metadata table on
+--- every call, and the content is the same each time. A checker that read it
+--- again repeats every finding once per shortcode.
+--- @param meta table<string, any> Document metadata, read on the first call only
 --- @return table<string, any> defaults A copy of the defaults, empty when there is no schema
 --- @return table|nil resolved {provided, merged, defaults}, nil when there is no schema
 function Checker:options(meta)

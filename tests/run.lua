@@ -456,6 +456,44 @@ do
     equal(#recorded, 1, '`options` checks the configuration once per render')
   end
 
+  -- The single check is what the `meta` of a later call is traded for, and the
+  -- trade has to be visible rather than assumed. Quarto hands a shortcode a new
+  -- metadata table on every call holding the same content, so a checker that
+  -- honoured the later argument would repeat every finding once per shortcode.
+  -- The validator here records what it was handed and answers from it, so a
+  -- checker that read the second metadata would come back with `fontawesome`
+  -- rather than with a table the stub would have returned either way.
+  do
+    install_stubs()
+    local spec = {
+      schema = schema_with({ set = { type = 'string', default = 'octicon' } }),
+      provided = { bogus = 'x' },
+      warnings = { 'bogus: is not a recognised key and was ignored.' },
+    }
+    local validator = stub_validator(spec)
+    local handed = {}
+    validator.extract_meta_options = function(meta)
+      handed[#handed + 1] = meta
+      spec.defaults = { set = meta.extensions.demo.set }
+      return spec.provided
+    end
+    local checker = check_mod.new(validator, 'demo')
+
+    local first_meta = { extensions = { demo = { set = 'octicon' } } }
+    local second_meta = { extensions = { demo = { set = 'fontawesome' } } }
+
+    local first = checker:options(first_meta)
+    equal(#handed, 1, 'the first call reads the metadata it is given')
+    check(handed[1] == first_meta, 'the first call hands the validator its own metadata',
+      tostring(handed[1]))
+    equal(first.set, 'octicon', 'the first call answers from the metadata it read')
+
+    local later = checker:options(second_meta)
+    equal(#handed, 1, 'a later call never reads the metadata it is given')
+    equal(later.set, 'octicon', 'a later call returns what the first call resolved')
+    equal(#recorded, 1, 'a later call reports nothing about the metadata it is given')
+  end
+
   -- The defaults are handed over as a copy. This module is vendored into many
   -- extensions, and it publishes the defaults on a convenient path, so a
   -- caller writing a computed fallback into what it received is an easy and
