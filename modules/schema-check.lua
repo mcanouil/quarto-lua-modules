@@ -18,8 +18,9 @@
 --- provide `load_schema`, `validate`, `validate_shortcode`,
 --- `extract_meta_options` and `validate_attributes`.
 ---
---- A validator that lacks one of them is reported rather than called, because
---- the two are vendored separately and a copy can be older than this module.
+--- `validate_attributes` is newer than the rest of that list, so a validator
+--- vendored before it exists is reported rather than called. The others are
+--- required outright and a validator without one of them raises.
 ---
 --- Nothing here stops a render. A schema is configuration, and a fault in the
 --- configuration must not remove the document.
@@ -171,6 +172,8 @@ end
 --- @field defaults table<string, any> The defaults the schema declares
 --- @field resolved table|nil The three tables the configuration resolves to
 --- @field options_checked boolean Whether the configuration was already checked
+--- @field attributes_unavailable boolean|nil Whether the validator was already
+---   reported as having no `validate_attributes`
 local Checker = {}
 Checker.__index = Checker
 
@@ -333,12 +336,20 @@ function Checker:attributes(attributes, group)
     return attributes
   end
 
-  -- A validator older than this module satisfies the contract `new` documents
-  -- and still lacks this function. Calling it raises, and a raise removes the
+  -- A validator older than this module satisfies the rest of the contract and
+  -- still lacks this function. Calling it raises, and a raise removes the
   -- document, which is the one thing this module promises not to do.
+  --
+  -- It is reported once for the render rather than once for each element. A
+  -- filter calls this for every element it handles, and the condition is a
+  -- fact about the vendored pair, so the second message says nothing the first
+  -- did not.
   if type(self.validator.validate_attributes) ~= 'function' then
-    self:_report('misuse',
-      'schema-check: the validator provides no `validate_attributes`, so attributes were not checked')
+    if not self.attributes_unavailable then
+      self.attributes_unavailable = true
+      self:_report('misuse',
+        'schema-check: the validator provides no `validate_attributes`, so attributes were not checked')
+    end
     return attributes
   end
 

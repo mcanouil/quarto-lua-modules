@@ -872,6 +872,35 @@ do
     equal(#recorded, 1, 'a validator without `validate_attributes` is reported once')
     equal(recorded[1] and recorded[1].level, 'error',
       'a validator that cannot check attributes is an error')
+
+    -- The condition belongs to the render, not to the element. A filter calls
+    -- this once per element, so a stale vendored validator would otherwise
+    -- write the same line for every element in the document.
+    checker:attributes({ size = 'sm' }, 'modal')
+    checker:attributes({ size = 'xl' }, 'modal')
+    equal(#recorded, 1, 'a validator without `validate_attributes` is reported once per render')
+  end
+
+  -- An element with no attributes at all is not a caller fault, and it answers
+  -- the same shape as one that has some, whether or not a schema was read.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, attributes = { ['_any'] = {} } },
+      groups = { ['_any'] = { resolve = { flag = true } } },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    local merged = checker:attributes(nil, 'modal')
+    check(type(merged) == 'table', 'nil attributes answer a table', tostring(merged))
+    equal(merged.flag, true, 'nil attributes still take what `_any` declares')
+    equal(#recorded, 0, 'nil attributes report nothing')
+
+    install_stubs()
+    local bare = check_mod.new(stub_validator({ schema = schema_with({}) }), 'demo')
+    local empty = bare:attributes(nil, 'modal')
+    check(type(empty) == 'table' and next(empty) == nil,
+      'without an `attributes` section nil attributes answer an empty table', tostring(empty))
+    equal(#recorded, 0, 'without an `attributes` section nil attributes report nothing')
   end
 
   -- A group that is not a string is the same caller fault `option` guards, and
