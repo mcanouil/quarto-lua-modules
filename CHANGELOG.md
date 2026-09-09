@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `Checker:option`, which returns the value the schema resolves an option to. An extension no longer decides for itself what counts as true, so `enabled: no` means the same thing in every extension.
+- feat: Add `Checker:attributes`, which checks one element's attributes against the `attributes` section and returns what they resolve to. Both the element's own group and `_any` apply, the named group last.
 - docs: State that `Checker:options` reads the metadata of its first call only. A later call returns what the first call resolved, so a caller that needs a second document checked builds a second checker.
 
 ## 2.3.0 (2026-09-07)

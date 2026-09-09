@@ -319,6 +319,27 @@ do
         return true, call.errors or {}, call.warnings or {},
           { arguments = {}, attributes = {} }
       end,
+      -- Stands in for the real function closely enough for the module's own
+      -- job, which is deciding what to call and in what order. `spec.groups`
+      -- names the groups the schema declares; a group absent from it hands the
+      -- input straight back, which is what the real one does with no
+      -- descriptors. Each declared group applies its own map of replacements,
+      -- so a check can read whether the second pass saw the first pass's work.
+      validate_attributes = function(attributes, group, _)
+        spec.attr_calls = spec.attr_calls or {}
+        spec.attr_calls[#spec.attr_calls + 1] = { group = group, input = attributes }
+        local declared = (spec.groups or {})[group]
+        if declared == nil then
+          return true, {}, {}, attributes
+        end
+        local merged = {}
+        for key, value in pairs(attributes or {}) do merged[key] = value end
+        -- One map stands in for both of the real function's effects, since a
+        -- coerced value and an applied default are the same thing here: a key
+        -- the group decides the value of.
+        for key, value in pairs(declared.resolve or {}) do merged[key] = value end
+        return #(declared.errors or {}) == 0, declared.errors or {}, declared.warnings or {}, merged
+      end,
     }
   end
 
@@ -656,6 +677,185 @@ do
     equal(again_defaults.inline, true, 'the cached call returns the same defaults')
     check(again_resolved == resolved, 'the cached call returns the same resolved table',
       tostring(again_resolved))
+  end
+
+  -- Reading one option. Every extension needs the value of a single key, and
+  -- before this each one read the document itself and decided what counted as
+  -- true. Six different answers reached the fleet, none of them the schema's,
+  -- so `enabled: no` turned a filter off in one extension and left it on in
+  -- another. This reads what the validator resolved, so the schema is the only
+  -- answer, and a key the document never set resolves to its declared default.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({
+        enabled = { type = 'boolean', default = true },
+        set = { type = 'string', default = 'octicon' },
+      }),
+      provided = { enabled = 'no' },
+      merged = { enabled = false, set = 'octicon' },
+      defaults = { enabled = true, set = 'octicon' },
+    }), 'demo')
+
+    checker:options({})
+    equal(checker:option('enabled'), false,
+      '`option` returns what the validator resolved, not what the document wrote')
+    equal(checker:option('set'), 'octicon',
+      '`option` returns the declared default for a key the document never set')
+    equal(checker:option('absent'), nil, '`option` returns nil for a key no schema declares')
+    equal(#recorded, 0, '`option` reports nothing about a key it can answer')
+  end
+
+  -- `option` before `options` is a fault in the extension, not in the document.
+  -- It cannot answer, and answering nil in silence is the same quiet wrong
+  -- value this whole path exists to stop, so it says so once.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ enabled = { type = 'boolean', default = true } }),
+      merged = { enabled = false },
+      defaults = { enabled = true },
+    }), 'demo')
+
+    equal(checker:option('enabled'), nil, '`option` before `options` answers nothing')
+    equal(#recorded, 1, '`option` before `options` is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      '`option` before `options` is an error, because the caller gets no value')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] schema-check: `option("enabled")` was called before `options`',
+      'the message names the key and the call that was missed')
+  end
+
+  -- A key that is not a string is the typo `option(meta)` makes, next to
+  -- `options(meta)` one letter away. It is reported rather than indexed, so the
+  -- mistake shows up instead of resolving to nil.
+  do
+    install_stubs()
+    local checker = check_mod.new(stub_validator({
+      schema = schema_with({ enabled = { type = 'boolean', default = true } }),
+      merged = { enabled = false },
+      defaults = { enabled = true },
+    }), 'demo')
+    checker:options({})
+
+    equal(checker:option({}), nil, '`option` given a table answers nothing')
+    equal(#recorded, 1, '`option` given a table is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a key that is not a string is an error')
+    check(recorded[1] and recorded[1].message:find('must be a string', 1, true) ~= nil,
+      'the message says a key must be a string',
+      recorded[1] and recorded[1].message or 'nothing was reported')
+  end
+
+  -- Without a schema there is nothing to resolve against, and the checker has
+  -- already said so once. A second message per key read would bury it.
+  do
+    install_stubs()
+    local checker = check_mod.new(
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    checker:options({})
+    equal(checker:option('enabled'), nil, 'without a schema `option` answers nothing')
+    equal(#recorded, 1, 'without a schema `option` reports nothing further')
+  end
+
+  -- Checking one element's attributes. The `attributes` section declares a map
+  -- of groups, and a schema may use both a group named after the element and
+  -- `_any`, which quarto-revealjs-tabset does: `panel-tabset` carries the
+  -- tabset's own attributes and `_any` carries one a slide can take. So both
+  -- apply, and the specific group runs last, over the result of `_any`. The
+  -- real function hands an undeclared key straight back, so chaining the two
+  -- passes is the whole of the merge.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, attributes = { ['_any'] = {}, tabset = {} } },
+      groups = {
+        ['_any'] = { resolve = { ['skip-clone'] = false } },
+        ['panel-tabset'] = { resolve = { ['tab-active'] = 0 } },
+      },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+
+    local merged = checker:attributes({ ['skip-clone'] = 'no', other = 'kept' }, 'panel-tabset')
+    equal(merged['skip-clone'], false, '`attributes` returns what `_any` resolved')
+    equal(merged['tab-active'], 0, '`attributes` applies the named group over that result')
+    equal(merged.other, 'kept', '`attributes` hands an undeclared attribute back unchanged')
+    equal(#recorded, 0, '`attributes` reports nothing when every value is accepted')
+
+    equal(#spec.attr_calls, 2, '`attributes` checks both `_any` and the named group')
+    equal(spec.attr_calls[1].group, '_any', '`_any` is checked first, being the least specific')
+    equal(spec.attr_calls[2].group, 'panel-tabset', 'the named group is checked second')
+    equal(spec.attr_calls[2].input['skip-clone'], false,
+      'the named group sees what `_any` resolved, not the original input')
+  end
+
+  -- A finding about an element's attribute is a warning. The attribute stays on
+  -- the element whatever the schema says, so the rendered output does not
+  -- change because of the finding, which is the reason a shortcode attribute is
+  -- a warning too.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, attributes = { tabset = {} } },
+      groups = {
+        ['panel-tabset'] = {
+          resolve = {},
+          errors = { 'panel-tabset.tab-active: must be of type "integer", got "x".' },
+          warnings = { 'panel-tabset.tab-actve: is not a recognised key and was ignored.' },
+        },
+      },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    checker:attributes({ ['tab-active'] = 'x' }, 'panel-tabset')
+
+    equal(#recorded, 2, 'both the error and the warning are reported')
+    equal(recorded[1].level, 'warning', 'a rejected attribute value is a warning')
+    equal(recorded[2].level, 'warning', 'an unrecognised attribute is a warning')
+    equal(recorded[1].message,
+      '[demo] panel-tabset.tab-active: must be of type "integer", got "x".',
+      'the validator message is reported unchanged, with the extension name')
+  end
+
+  -- Without a schema, or without an `attributes` section, there is nothing to
+  -- check against and the attributes come back as they went in.
+  do
+    install_stubs()
+    local checker = check_mod.new(
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    local given = { size = 'lg' }
+    check(checker:attributes(given, 'modal') == given,
+      'without a schema `attributes` hands back the table it was given', 'a different table')
+    equal(#recorded, 1, 'without a schema `attributes` reports nothing further')
+
+    install_stubs()
+    local plain = check_mod.new(stub_validator({ schema = schema_with({}) }), 'demo')
+    local held = { size = 'lg' }
+    check(plain:attributes(held, 'modal') == held,
+      'with no `attributes` section the table is handed back', 'a different table')
+    equal(#recorded, 0, 'with no `attributes` section nothing is reported')
+  end
+
+  -- A group that is not a string is the same caller fault `option` guards, and
+  -- it is reported rather than looked up. `nil` is not that fault: an element
+  -- with no group of its own still takes whatever `_any` declares.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, attributes = { ['_any'] = {} } },
+      groups = { ['_any'] = { resolve = { flag = true } } },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+
+    local merged = checker:attributes({ flag = 'yes' }, nil)
+    equal(merged.flag, true, 'without a group `attributes` still applies `_any`')
+    equal(#spec.attr_calls, 1, 'without a group only `_any` is checked')
+    equal(#recorded, 0, 'without a group nothing is reported')
+
+    install_stubs()
+    spec.attr_calls = nil
+    local other = check_mod.new(stub_validator(spec), 'demo')
+    equal(other:attributes({ flag = 'yes' }, {}), nil, '`attributes` given a table group answers nothing')
+    equal(#recorded, 1, 'a group that is not a string is reported once')
+    equal(recorded[1].level, 'error', 'a group that is not a string is an error')
   end
 
   -- An unknown option is advice, not a failure.

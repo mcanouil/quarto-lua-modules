@@ -52,6 +52,10 @@ local str = load_sibling('string.lua')
 ---
 --- A rejected document option keeps the error level it has today: it names a
 --- value the extension cannot use, and the author has to correct it.
+---
+--- `misuse` is the one kind that is not about the document. It reports a fault
+--- in the extension calling this module, and it is an error because the caller
+--- is handed no value and would otherwise carry on with nil.
 --- @type table<string, string>
 local SEVERITY = {
   schema = 'error',
@@ -60,6 +64,9 @@ local SEVERITY = {
   call_error = 'warning',
   call_warning = 'warning',
   missing_argument = 'error',
+  misuse = 'error',
+  attribute_error = 'warning',
+  attribute_warning = 'warning',
 }
 
 --- The reporting function for each level.
@@ -247,6 +254,91 @@ function Checker:options(meta)
   self.resolved = { provided = provided, merged = merged, defaults = self.defaults }
 
   return deep_copy(self.defaults), self.resolved
+end
+
+--- Read what one option resolves to, after `options` has run.
+---
+--- This is the value the schema decides, not the text the document holds. An
+--- extension that reads the metadata itself has to decide what counts as true,
+--- and each one that did decided something different, so `enabled: no` turned
+--- one filter off and left another on. Here the schema is the only answer: the
+--- validator coerces the written value toward the declared type, and a key the
+--- document never set resolves to its declared default.
+---
+--- It answers nil when there is no schema, which the checker has already
+--- reported once. A key the schema does not declare answers nil as well,
+--- because a schema that omits an option is the author's statement that the
+--- extension does not have it.
+--- @param key string The option name, as the schema declares it
+--- @return any value The resolved value, nil when there is nothing to resolve
+function Checker:option(key)
+  if type(key) ~= 'string' then
+    self:_report('misuse', string.format(
+      'schema-check: the key given to `option` must be a string, got %s', type(key)))
+    return nil
+  end
+  if not self.options_checked then
+    self:_report('misuse', string.format(
+      'schema-check: `option("%s")` was called before `options`', key))
+    return nil
+  end
+  if self.resolved == nil then
+    return nil
+  end
+  return self.resolved.merged[key]
+end
+
+--- Check one element's attributes against the `attributes` section, and return
+--- what they resolve to.
+---
+--- The section declares a map of groups. A group is named after the element it
+--- describes, such as `Header` or `CodeBlock`, or after the class the extension
+--- gives it, such as `modal`. `_any` is the group every element takes, and it
+--- is additive rather than an alternative: quarto-revealjs-tabset declares
+--- `panel-tabset` for a tabset's own attributes and `_any` for one that any
+--- slide can carry, and an element can meet both.
+---
+--- So both apply, and the named group runs last, over what `_any` resolved. The
+--- validator hands an undeclared attribute straight back, so chaining the two
+--- passes is the whole of the merge and there is no rule here about which group
+--- wins. The one that declares the attribute decides it.
+---
+--- This reports only. The attribute stays on the element whatever the schema
+--- says, so nothing about the rendered output changes, which is why a finding
+--- here is a warning as it is for a shortcode attribute.
+--- @param attributes table<string, any> The element's attributes
+--- @param group string|nil The element's own group, nil when it has none
+--- @return table<string, any>|nil resolved The attributes with the schema applied
+function Checker:attributes(attributes, group)
+  if group ~= nil and type(group) ~= 'string' then
+    self:_report('misuse', string.format(
+      'schema-check: the group given to `attributes` must be a string, got %s', type(group)))
+    return nil
+  end
+
+  --- @type table|nil
+  local loaded = self.schema
+  -- The validator is injected from an independent source, so the shape of what
+  -- it returns is not this module's to assume, as `options` and `call` allow
+  -- for `options` and `shortcodes`.
+  if loaded == nil or next(loaded.attributes or {}) == nil then
+    return attributes
+  end
+
+  --- @type table<string, any>
+  local resolved = attributes or {}
+  for _, name in ipairs(group == nil and { '_any' } or { '_any', group }) do
+    local _, errors, warnings, merged =
+      self.validator.validate_attributes(resolved, name, loaded)
+    for _, message in ipairs(errors) do
+      self:_report('attribute_error', message)
+    end
+    for _, message in ipairs(warnings) do
+      self:_report('attribute_warning', message)
+    end
+    resolved = merged
+  end
+  return resolved
 end
 
 --- Check one shortcode call against its entry in the schema.
