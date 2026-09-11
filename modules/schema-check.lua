@@ -16,11 +16,16 @@
 --- vendored copy of this module then knows nothing about where the validator
 --- was vendored, so the two sources stay independent. The validator must
 --- provide `load_schema`, `validate`, `validate_shortcode`,
---- `extract_meta_options` and `validate_attributes`.
+--- `extract_meta_options`, `validate_attributes` and `validate_format`.
 ---
---- `validate_attributes` is newer than the rest of that list, so a validator
---- vendored before it exists is reported rather than called. The others are
---- required outright and a validator without one of them raises.
+--- The last two are newer than the rest of that list, so a validator vendored
+--- before either exists is reported rather than called. The others are required
+--- outright and a validator without one of them raises.
+---
+--- `validate_format` must also be the one that reads the top level of the
+--- metadata, which is Quarto Wizard 3.6.0 or newer. An older one looks for the
+--- format name as a metadata key, which a document never has, so it would
+--- report nothing whatever the document wrote.
 ---
 --- Nothing here stops a render. A schema is configuration, and a fault in the
 --- configuration must not remove the document.
@@ -55,7 +60,14 @@ local str = load_sibling('string.lua')
 --- document.
 ---
 --- A rejected document option keeps the error level it has today: it names a
---- value the extension cannot use, and the author has to correct it.
+--- value the extension cannot use, and the author has to correct it. A rejected
+--- format option is the same finding about the same document, one section over,
+--- so it takes the same level.
+---
+--- A finding about an element's attribute is a warning instead. The attribute
+--- stays on the element whatever the schema says, so the rendered output does
+--- not change because of it, which is the reason a shortcode attribute is a
+--- warning too.
 ---
 --- `misuse` is the one kind that is not about the document. It reports a fault
 --- in the extension calling this module, and it is an error because the caller
@@ -527,7 +539,8 @@ end
 --- schema is, and the checker it builds belongs at file scope, so that the
 --- schema is read once for the render and not once for each call.
 --- @param validator table The validator, with `load_schema`, `validate`,
----   `validate_shortcode`, `extract_meta_options` and `validate_attributes`
+---   `validate_shortcode`, `extract_meta_options`, `validate_attributes` and
+---   `validate_format`
 --- @param extension_name string The extension name every message carries
 --- @param schema_path string|nil The schema to read, relative to the entry
 ---   point that is running. Defaults to `_schema.yml`.
