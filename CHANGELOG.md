@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `Checker:format`, which checks one output format's options against the `formats` section and returns what they resolve to. It needs Quarto Wizard 3.6.0 or newer, whose `validate_format` reads the top level of the metadata where Quarto puts them.
+
 ## 2.4.0 (2026-09-09)
 
 - feat: Add `Checker:option`, which returns the value the schema resolves an option to. An extension no longer decides for itself what counts as true, so `enabled: no` means the same thing in every extension.

@@ -340,6 +340,19 @@ do
         for key, value in pairs(declared.resolve or {}) do merged[key] = value end
         return #(declared.errors or {}) == 0, declared.errors or {}, declared.warnings or {}, merged
       end,
+      -- `spec.formats` names the format groups the schema declares, each with
+      -- what it resolves to and what it found. A group absent from it answers
+      -- an empty table, which is what the real one does with no descriptors.
+      validate_format = function(meta, format, _)
+        spec.format_calls = spec.format_calls or {}
+        spec.format_calls[#spec.format_calls + 1] = { format = format, meta = meta }
+        local declared = (spec.formats or {})[format]
+        if declared == nil then
+          return true, {}, {}, {}
+        end
+        return #(declared.errors or {}) == 0, declared.errors or {}, declared.warnings or {},
+          declared.merged or {}
+      end,
     }
   end
 
@@ -925,6 +938,109 @@ do
     equal(other:attributes({ flag = 'yes' }, {}), nil, '`attributes` given a table group answers nothing')
     equal(#recorded, 1, 'a group that is not a string is reported once')
     equal(recorded[1].level, 'error', 'a group that is not a string is an error')
+  end
+
+  -- Checking one output format's options. Quarto merges the options of the
+  -- selected format into the top level of the metadata, so the check needs the
+  -- document rather than an element, and it reads the metadata `options` was
+  -- given. The extension names its own format, as it names an attribute group,
+  -- because the format name is a name the extension contributes and not one
+  -- this module can work out.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, formats = { ['mcanouil-html'] = {} } },
+      formats = {
+        ['mcanouil-html'] = {
+          merged = { style = 'academic', ['title-block-authors'] = false },
+          errors = { 'mcanouil-html.style: must be one of: professional, academic, got nonsense.' },
+        },
+      },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    local meta = { style = 'academic' }
+    checker:options(meta)
+
+    local merged = checker:format('mcanouil-html')
+    equal(merged and merged.style, 'academic', '`format` returns what the format resolved')
+    equal(merged and merged['title-block-authors'], false,
+      'a format option written as `no` comes back as false')
+    equal(#spec.format_calls, 1, 'the format is checked once')
+    check(spec.format_calls[1].meta == meta,
+      'the check reads the metadata `options` was given', tostring(spec.format_calls[1].meta))
+    equal(#recorded, 1, 'a rejected format option is reported')
+    equal(recorded[1] and recorded[1].level, 'error',
+      'a rejected format option is an error, as a rejected document option is')
+
+    -- A filter may ask more than once in one render. The answer is the same,
+    -- and repeating the finding would fill the log the way `options` refuses to.
+    local again = checker:format('mcanouil-html')
+    check(again == merged, 'asking again returns the same table', tostring(again))
+    equal(#spec.format_calls, 1, 'asking again does not check the format twice')
+    equal(#recorded, 1, 'asking again reports nothing further')
+  end
+
+  -- `format` needs the metadata, which only `options` supplies, and it needs a
+  -- name it can look up. Both faults are the caller's, so both are reported.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, formats = { ['mcanouil-html'] = {} } },
+      formats = { ['mcanouil-html'] = { merged = { style = 'academic' } } },
+    }
+    local early = check_mod.new(stub_validator(spec), 'demo')
+    equal(early:format('mcanouil-html'), nil, '`format` before `options` answers nothing')
+    equal(#recorded, 1, '`format` before `options` is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      '`format` before `options` is an error, because the caller gets no value')
+
+    install_stubs()
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    checker:options({})
+    equal(checker:format({}), nil, '`format` given a table answers nothing')
+    equal(#recorded, 1, 'a format name that is not a string is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      'a format name that is not a string is an error')
+  end
+
+  -- A schema with no `formats` section has nothing to say about a format, and
+  -- the checker has already reported an unreadable schema once.
+  do
+    install_stubs()
+    local bare = check_mod.new(stub_validator({ schema = schema_with({}) }), 'demo')
+    bare:options({})
+    equal(bare:format('mcanouil-html'), nil, 'with no `formats` section `format` answers nothing')
+    equal(#recorded, 0, 'with no `formats` section nothing is reported')
+
+    install_stubs()
+    local broken = check_mod.new(
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    broken:options({})
+    equal(broken:format('mcanouil-html'), nil, 'without a schema `format` answers nothing')
+    equal(#recorded, 1, 'without a schema `format` reports nothing further')
+  end
+
+  -- The same allowance `attributes` makes. `validate_format` is newer than the
+  -- base contract, so a validator vendored before it exists is reported once
+  -- for the render rather than called.
+  do
+    install_stubs()
+    local validator = stub_validator({
+      schema = { options = {}, shortcodes = {}, formats = { ['mcanouil-html'] = {} } },
+    })
+    validator.validate_format = nil
+    local checker = check_mod.new(validator, 'demo')
+    checker:options({})
+
+    local ok, merged = pcall(checker.format, checker, 'mcanouil-html')
+    check(ok, 'a validator without `validate_format` does not raise',
+      not ok and tostring(merged) or nil)
+    equal(ok and merged or nil, nil, 'a validator without `validate_format` answers nothing')
+    equal(#recorded, 1, 'a validator without `validate_format` is reported once')
+
+    checker:format('mcanouil-html')
+    checker:format('letter-pdf')
+    equal(#recorded, 1, 'a validator without `validate_format` is reported once per render')
   end
 
   -- An unknown option is advice, not a failure.

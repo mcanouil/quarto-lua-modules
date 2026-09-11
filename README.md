@@ -37,6 +37,7 @@ local checker = check.new(validator, 'iconify')
 local defaults, resolved = checker:options(meta)
 local inline = checker:option('inline')
 local attributes = checker:attributes(el.attributes, 'CodeBlock')
+local format = checker:format('letter-pdf')
 checker:call('iconify', args, kwargs)
 ```
 
@@ -48,6 +49,9 @@ Read it rather than the document, so that the schema decides what counts as true
 
 `attributes` checks one element against the `attributes` section and returns what its attributes resolve to.
 Both the element's own group and `_any` apply, the named group last.
+
+`format` checks one output format against the `formats` section, after `options` has run.
+Quarto merges the options of the selected format into the top level of the metadata, so the extension names its own format, as it names an attribute group.
 
 `new` reads `_schema.yml` beside the entry point that runs.
 An extension whose entry points live in a subdirectory gives the path as a third argument:

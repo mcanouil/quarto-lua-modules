@@ -71,6 +71,8 @@ local SEVERITY = {
   misuse = 'error',
   attribute_error = 'warning',
   attribute_warning = 'warning',
+  format_error = 'error',
+  format_warning = 'warning',
 }
 
 --- The reporting function for each level.
@@ -172,8 +174,9 @@ end
 --- @field defaults table<string, any> The defaults the schema declares
 --- @field resolved table|nil The three tables the configuration resolves to
 --- @field options_checked boolean Whether the configuration was already checked
---- @field attributes_unavailable boolean|nil Whether the validator was already
----   reported as having no `validate_attributes`
+--- @field meta table|nil The metadata `options` was given, which `format` reads
+--- @field formats table<string, table> What each format checked so far resolved to
+--- @field unavailable table<string, boolean> Validator functions already reported missing
 local Checker = {}
 Checker.__index = Checker
 
@@ -193,6 +196,31 @@ function Checker:_report(kind, message)
     return
   end
   REPORTERS[level](self.extension, message)
+end
+
+--- Whether the validator provides one function, reporting it once if not.
+---
+--- `validate_attributes` and `validate_format` are newer than the rest of the
+--- contract, so a validator vendored before either exists satisfies everything
+--- else and still lacks them. Calling one raises, and a raise removes the
+--- document, which is the one thing this module promises not to do.
+---
+--- It is reported once for the render rather than once for each caller. A
+--- filter reaches these for every element and every format it handles, and the
+--- condition is a fact about the vendored pair, so the second message says
+--- nothing the first did not.
+--- @param name string The function the caller is about to use
+--- @return boolean available
+function Checker:_provides(name)
+  if type(self.validator[name]) == 'function' then
+    return true
+  end
+  if not self.unavailable[name] then
+    self.unavailable[name] = true
+    self:_report('misuse', string.format(
+      'schema-check: the validator provides no `%s`, so nothing was checked with it', name))
+  end
+  return false
 end
 
 --- Check the document configuration and return what it resolves to. The check
@@ -232,6 +260,10 @@ function Checker:options(meta)
     return deep_copy(self.defaults), self.resolved
   end
   self.options_checked = true
+  -- Kept for `format`, which reads the same document. Quarto merges the options
+  -- of the selected format into the top level of this table, so the format
+  -- check has nowhere else to read them from.
+  self.meta = meta
 
   --- @type table|nil
   local loaded = self.schema
@@ -336,20 +368,7 @@ function Checker:attributes(attributes, group)
     return attributes
   end
 
-  -- A validator older than this module satisfies the rest of the contract and
-  -- still lacks this function. Calling it raises, and a raise removes the
-  -- document, which is the one thing this module promises not to do.
-  --
-  -- It is reported once for the render rather than once for each element. A
-  -- filter calls this for every element it handles, and the condition is a
-  -- fact about the vendored pair, so the second message says nothing the first
-  -- did not.
-  if type(self.validator.validate_attributes) ~= 'function' then
-    if not self.attributes_unavailable then
-      self.attributes_unavailable = true
-      self:_report('misuse',
-        'schema-check: the validator provides no `validate_attributes`, so attributes were not checked')
-    end
+  if not self:_provides('validate_attributes') then
     return attributes
   end
 
@@ -371,6 +390,58 @@ function Checker:attributes(attributes, group)
     resolved = merged
   end
   return resolved
+end
+
+--- Check one output format's options against the `formats` section, and return
+--- what they resolve to.
+---
+--- Quarto merges the options of the selected format into the top level of the
+--- document metadata, and the format name is never a key there. So this reads
+--- the metadata `options` was given, and it must be called after `options`.
+---
+--- The extension names its own format, as it names an attribute group. A format
+--- name such as `letter-pdf` is a name the extension contributes, and nothing
+--- here can work out which of several declared formats a render selected.
+---
+--- The answer is kept, so a filter that asks again in the same render gets the
+--- same table and the findings are reported once.
+--- @param name string The format name, as the schema declares it
+--- @return table<string, any>|nil resolved The format's options, nil when there is nothing to resolve
+function Checker:format(name)
+  if type(name) ~= 'string' then
+    self:_report('misuse', string.format(
+      'schema-check: the name given to `format` must be a string, got %s', type(name)))
+    return nil
+  end
+  if not self.options_checked then
+    self:_report('misuse', string.format(
+      'schema-check: `format("%s")` was called before `options`', name))
+    return nil
+  end
+  if self.formats[name] ~= nil then
+    return self.formats[name]
+  end
+
+  --- @type table|nil
+  local loaded = self.schema
+  if loaded == nil or next(loaded.formats or {}) == nil then
+    return nil
+  end
+  if not self:_provides('validate_format') then
+    return nil
+  end
+
+  local _, errors, warnings, merged =
+    self.validator.validate_format(self.meta, name, loaded)
+  for _, message in ipairs(errors) do
+    self:_report('format_error', message)
+  end
+  for _, message in ipairs(warnings) do
+    self:_report('format_warning', message)
+  end
+
+  self.formats[name] = merged
+  return merged
 end
 
 --- Check one shortcode call against its entry in the schema.
@@ -471,6 +542,9 @@ function M.new(validator, extension_name, schema_path)
     defaults = {},
     resolved = nil,
     options_checked = false,
+    meta = nil,
+    formats = {},
+    unavailable = {},
   }, Checker)
 
   -- The default is chosen here rather than in the signature, so a caller that
