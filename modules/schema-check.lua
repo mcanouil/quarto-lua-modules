@@ -37,7 +37,7 @@ local M = {}
 --- @return table The loaded module
 local function load_sibling(filename)
   local name = filename:gsub('%.lua$', '')
-  if not debug then
+  if not (debug and debug.getinfo) then
     -- q2 has no `debug` library, and its `require` looks in the directory of
     -- the module being loaded first.
     return require(name)

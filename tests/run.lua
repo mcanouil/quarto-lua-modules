@@ -137,6 +137,12 @@ do
         name, name)
       expected[#expected + 1] = name .. '=table'
     end
+    -- A sibling bound to the wrong table still loads, so one call goes through
+    -- `string.lua`, which the standard library of the same name cannot answer.
+    lines[#lines + 1] = "local html = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/html.lua'):gsub('%.lua$', ''))"
+    lines[#lines + 1] = "local ok, header = pcall(html.raw_header, 2, 'T', 'a&b')"
+    lines[#lines + 1] = "loaded[#loaded + 1] = 'escaped=' .. tostring(ok and header:find('a&amp;b', 1, true) ~= nil)"
+    expected[#expected + 1] = 'escaped=true'
     expected = table.concat(expected, ',')
     lines[#lines + 1] = "return { probe = function() return pandoc.Str(table.concat(loaded, ',')) end }"
     write(project .. '/_extensions/probe/probe.lua', table.concat(lines, '\n') .. '\n')
@@ -145,22 +151,28 @@ do
     write(project .. '/_quarto.yml', 'project:\n  type: default\n')
     write(project .. '/doc.qmd', '---\ntitle: Probe\nformat: html\n---\n\n{{< probe >}}\n')
 
-    local function render(command)
-      os.remove(project .. '/doc.html')
-      os.execute('cd ' .. quote(project) .. ' && ' .. command .. ' render doc.qmd > /dev/null 2>&1')
-      local handle = io.open(project .. '/doc.html', 'r')
+    local function read(path)
+      local handle = io.open(path, 'r')
       if not handle then
         return ''
       end
-      local html = handle:read('a')
+      local text = handle:read('a')
       handle:close()
-      return html
+      return text
+    end
+
+    --- The rendered page, and the engine's output for the failure detail.
+    local function render(command)
+      os.remove(project .. '/doc.html')
+      os.execute('cd ' .. quote(project) .. ' && ' .. command .. ' render doc.qmd > render.log 2>&1')
+      return read(project .. '/doc.html'), read(project .. '/render.log')
     end
 
     for _, engine in ipairs({ 'quarto', 'q2' }) do
       local description = engine .. ' loads every module and its siblings from a vendored path with a space'
       if os.execute(engine .. ' --version > /dev/null 2>&1') then
-        check(render(engine):find(expected, 1, true) ~= nil, description)
+        local page, output = render(engine)
+        check(page:find(expected, 1, true) ~= nil, description, output:sub(-600))
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
       end
