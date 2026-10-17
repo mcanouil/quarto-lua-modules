@@ -109,6 +109,69 @@ for _, name in ipairs(names) do
   end
 end
 
+io.stdout:write('# loading from an extension\n')
+
+--- The modules as an extension vendors them, in a directory whose path has a
+--- space. A shortcode loads every module that has siblings and prints what
+--- each one returned. quarto-cli has the `debug` library and q2 does not, so
+--- each renders the project with its own way to find the siblings.
+do
+  local with_siblings = { 'content-extraction', 'html', 'metadata', 'pandoc-helpers', 'paths', 'schema-check' }
+  local function quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+  end
+  local function write(path, text)
+    local handle = assert(io.open(path, 'w'))
+    handle:write(text)
+    handle:close()
+  end
+  pandoc.system.with_temporary_directory('lua-modules', function(tmp)
+    local project = tmp .. '/with space'
+    local vendor = project .. '/_extensions/probe/_vendor/quarto-lua-modules'
+    pandoc.system.make_directory(vendor, true)
+    os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(vendor))
+    local lines = { 'local loaded = {}' }
+    for _, name in ipairs(with_siblings) do
+      lines[#lines + 1] = string.format(
+        "loaded[#loaded + 1] = '%s=' .. type(require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/%s.lua'):gsub('%%.lua$', '')))",
+        name, name)
+    end
+    lines[#lines + 1] = "return { probe = function() return pandoc.Str(table.concat(loaded, ',')) end }"
+    write(project .. '/_extensions/probe/probe.lua', table.concat(lines, '\n') .. '\n')
+    write(project .. '/_extensions/probe/_extension.yml',
+      'title: Probe\nversion: 1.0.0\ncontributes:\n  shortcodes:\n    - probe.lua\n')
+    write(project .. '/_quarto.yml', 'project:\n  type: default\n')
+    write(project .. '/doc.qmd', '---\ntitle: Probe\nformat: html\n---\n\n{{< probe >}}\n')
+
+    local expected = {}
+    for _, name in ipairs(with_siblings) do
+      expected[#expected + 1] = name .. '=table'
+    end
+    expected = table.concat(expected, ',')
+
+    local function render(command)
+      os.remove(project .. '/doc.html')
+      os.execute('cd ' .. quote(project) .. ' && ' .. command .. ' render doc.qmd > /dev/null 2>&1')
+      local handle = io.open(project .. '/doc.html', 'r')
+      if not handle then
+        return ''
+      end
+      local html = handle:read('a')
+      handle:close()
+      return html
+    end
+
+    check(render('quarto'):find(expected, 1, true) ~= nil,
+      'quarto-cli loads every module and its siblings from a vendored path with a space')
+    if os.execute('q2 --version > /dev/null 2>&1') then
+      check(render('q2'):find(expected, 1, true) ~= nil,
+        'q2, which has no `debug` library, loads every module and its siblings from a vendored path with a space')
+    else
+      io.stdout:write('skip q2 loads every module: q2 is not on the PATH\n')
+    end
+  end)
+end
+
 io.stdout:write('# exports\n')
 
 --- Checked both ways. `EXPECTED` is hand-maintained on purpose, because these
