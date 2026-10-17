@@ -44,6 +44,24 @@ jobs:
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
+      # q2 has no `debug` library, so the modules find their siblings another
+      # way there. The suite renders a vendored copy with q2 when it is on the
+      # PATH, which this step provides. HTML needs no pandoc of its own.
+      - name: Set up q2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          q2_dir="${RUNNER_TEMP}/q2"
+          mkdir -p -- "${q2_dir}/bin"
+          gh release download -R quarto-dev/q2 \
+            -p 'q2-*-linux_amd64.tar.gz' -p 'checksums.sha256' -D "${q2_dir}"
+          cd -- "${q2_dir}"
+          sha256sum --check --ignore-missing --strict checksums.sha256
+          tar -xzf q2-*-linux_amd64.tar.gz -C "${q2_dir}/bin"
+          printf '%s\n' "${q2_dir}/bin" >> "${GITHUB_PATH}"
+          "${q2_dir}/bin/q2" --version
+
       # The suite loads and executes every module it finds on disk, which
       # subsumes a parse check, so there is no separate one.
       - name: Run the tests

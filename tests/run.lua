@@ -116,7 +116,16 @@ io.stdout:write('# loading from an extension\n')
 --- each one returned. quarto-cli has the `debug` library and q2 does not, so
 --- each renders the project with its own way to find the siblings.
 do
-  local with_siblings = { 'content-extraction', 'html', 'metadata', 'pandoc-helpers', 'paths', 'schema-check' }
+  -- Read from disk, so a module that starts to load a sibling is probed too.
+  local with_siblings = {}
+  for _, name in ipairs(names) do
+    local handle = assert(io.open(here .. 'modules/' .. name .. '.lua', 'r'))
+    if handle:read('a'):find('load_sibling(', 1, true) then
+      with_siblings[#with_siblings + 1] = name
+    end
+    handle:close()
+  end
+  check(#with_siblings == 6, 'six modules load a sibling', table.concat(with_siblings, ', '))
   local function quote(text)
     return "'" .. text:gsub("'", "'\\''") .. "'"
   end
