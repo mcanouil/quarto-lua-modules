@@ -130,24 +130,20 @@ do
     local vendor = project .. '/_extensions/probe/_vendor/quarto-lua-modules'
     pandoc.system.make_directory(vendor, true)
     os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(vendor))
-    local lines = { 'local loaded = {}' }
+    local lines, expected = { 'local loaded = {}' }, {}
     for _, name in ipairs(with_siblings) do
       lines[#lines + 1] = string.format(
         "loaded[#loaded + 1] = '%s=' .. type(require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/%s.lua'):gsub('%%.lua$', '')))",
         name, name)
+      expected[#expected + 1] = name .. '=table'
     end
+    expected = table.concat(expected, ',')
     lines[#lines + 1] = "return { probe = function() return pandoc.Str(table.concat(loaded, ',')) end }"
     write(project .. '/_extensions/probe/probe.lua', table.concat(lines, '\n') .. '\n')
     write(project .. '/_extensions/probe/_extension.yml',
       'title: Probe\nversion: 1.0.0\ncontributes:\n  shortcodes:\n    - probe.lua\n')
     write(project .. '/_quarto.yml', 'project:\n  type: default\n')
     write(project .. '/doc.qmd', '---\ntitle: Probe\nformat: html\n---\n\n{{< probe >}}\n')
-
-    local expected = {}
-    for _, name in ipairs(with_siblings) do
-      expected[#expected + 1] = name .. '=table'
-    end
-    expected = table.concat(expected, ',')
 
     local function render(command)
       os.remove(project .. '/doc.html')
@@ -161,13 +157,13 @@ do
       return html
     end
 
-    check(render('quarto'):find(expected, 1, true) ~= nil,
-      'quarto-cli loads every module and its siblings from a vendored path with a space')
-    if os.execute('q2 --version > /dev/null 2>&1') then
-      check(render('q2'):find(expected, 1, true) ~= nil,
-        'q2, which has no `debug` library, loads every module and its siblings from a vendored path with a space')
-    else
-      io.stdout:write('skip q2 loads every module: q2 is not on the PATH\n')
+    for _, engine in ipairs({ 'quarto', 'q2' }) do
+      local description = engine .. ' loads every module and its siblings from a vendored path with a space'
+      if os.execute(engine .. ' --version > /dev/null 2>&1') then
+        check(render(engine):find(expected, 1, true) ~= nil, description)
+      else
+        io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
+      end
     end
   end)
 end
