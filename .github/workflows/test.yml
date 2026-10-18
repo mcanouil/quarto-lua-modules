@@ -46,7 +46,8 @@ jobs:
 
       # q2 has no `debug` library, so the modules find their siblings another
       # way there. The suite renders a vendored copy with q2 when it is on the
-      # PATH, which this step provides. HTML needs no pandoc of its own.
+      # PATH, which this step provides. HTML needs no pandoc of its own. The
+      # release is pinned, so a new q2 changes the job only through a commit.
       - name: Set up q2
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,7 +55,7 @@ jobs:
           set -euo pipefail
           q2_dir="${RUNNER_TEMP}/q2"
           mkdir -p -- "${q2_dir}/bin"
-          gh release download -R quarto-dev/q2 \
+          gh release download v0.34.0 -R quarto-dev/q2 \
             -p 'q2-*-linux_amd64.tar.gz' -p 'checksums.sha256' -D "${q2_dir}"
           cd -- "${q2_dir}"
           sha256sum --check --ignore-missing --strict checksums.sha256
