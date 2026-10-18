@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.5.1 (2026-10-18)
+
 - fix: Load sibling modules on q2, which has no `debug` library. An extension that vendors the modules no longer stops there with a shortcode script error. (#12)
 
 ## 2.5.0 (2026-09-12)
