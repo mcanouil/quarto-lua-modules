@@ -138,7 +138,8 @@ do
     local project = tmp .. '/with space'
     local vendor = project .. '/_extensions/probe/_vendor/quarto-lua-modules'
     pandoc.system.make_directory(vendor, true)
-    os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(vendor))
+    assert(os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(vendor)),
+      'cannot copy the modules into ' .. vendor)
     local lines, expected = { 'local loaded = {}' }, {}
     for _, name in ipairs(with_siblings) do
       lines[#lines + 1] = string.format(
