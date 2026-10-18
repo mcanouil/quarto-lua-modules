@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fix: Load sibling modules on q2, which has no `debug` library. An extension that vendors the modules no longer stops there with a shortcode script error. (#12)
+
 ## 2.5.0 (2026-09-12)
 
 - feat: Add `Checker:format`, which checks one output format's options against the `formats` section and returns what they resolve to. It needs Quarto Wizard 3.6.0 or newer, whose `validate_format` reads the top level of the metadata where Quarto puts them.
