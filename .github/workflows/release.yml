@@ -55,12 +55,7 @@ jobs:
         uses: mcanouil/release-actions/bump@v1
         with:
           bump: ${{ inputs.version }}
-          targets: |
-            - file: CITATION.cff
-              pattern: '^version: {version}$'
-              source: true
-            - file: CITATION.cff
-              pattern: '^date-released: "{date}"$'
+          ecosystems: citation
 
       - name: Land the bump
         id: land
