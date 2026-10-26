@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `Checker:cells`, which checks the comment-pipe options of one code cell against the `cells` section and returns what they resolve to. It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`.
+
 ## 2.5.1 (2026-10-18)
 
 - fix: Load sibling modules on q2, which has no `debug` library. An extension that vendors the modules no longer stops there with a shortcode script error. (#12)

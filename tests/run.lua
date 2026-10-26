@@ -434,6 +434,20 @@ do
         return #(declared.errors or {}) == 0, declared.errors or {}, declared.warnings or {},
           declared.merged or {}
       end,
+      -- `spec.languages` names the cell languages the schema declares, each
+      -- with what it resolves to and what it found. A language absent from it
+      -- hands the options straight back, which is what the real one does with
+      -- an undeclared language.
+      validate_cells = function(options, language, schema)
+        spec.cell_calls = spec.cell_calls or {}
+        spec.cell_calls[#spec.cell_calls + 1] = { options = options, language = language, schema = schema }
+        local declared = (spec.languages or {})[language]
+        if declared == nil then
+          return true, {}, {}, options
+        end
+        return #(declared.errors or {}) == 0, declared.errors or {}, declared.warnings or {},
+          declared.merged or {}
+      end,
     }
   end
 
@@ -1122,6 +1136,105 @@ do
     checker:format('mcanouil-html')
     checker:format('letter-pdf')
     equal(#recorded, 1, 'a validator without `validate_format` is reported once per render')
+  end
+
+  -- Checking one code cell's comment-pipe options. The cell language picks the
+  -- group, as an element's group picks one under `attributes`, and the options
+  -- come back as the schema resolves them.
+  do
+    install_stubs()
+    local spec = {
+      schema = { options = {}, shortcodes = {}, cells = { typst = {} } },
+      languages = {
+        typst = {
+          merged = { dpi = 300, label = 'fig-a' },
+          errors = { 'typst.dpi: must be of type "integer", got "high".' },
+          warnings = { 'typst.dpii: is not a recognised key and was ignored.' },
+        },
+      },
+    }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    local given = { dpi = 'high', dpii = '1', label = 'fig-a' }
+
+    local merged = checker:cells(given, 'typst')
+    equal(merged and merged.dpi, 300, '`cells` returns what the cell options resolved')
+    equal(#spec.cell_calls, 1, 'the cell is checked once')
+    check(spec.cell_calls[1].options == given,
+      'the check reads the options it was given', tostring(spec.cell_calls[1].options))
+    equal(spec.cell_calls[1].language, 'typst', 'the check is handed the cell language')
+    check(spec.cell_calls[1].schema == spec.schema,
+      'the check is handed the schema that was read', tostring(spec.cell_calls[1].schema))
+    equal(#recorded, 2, 'both the error and the warning are reported')
+    equal(recorded[1] and recorded[1].level, 'warning',
+      'a rejected cell option is a warning, as a rejected attribute is')
+    equal(recorded[2] and recorded[2].level, 'warning', 'an unrecognised cell option is a warning')
+    equal(recorded[1] and recorded[1].message,
+      '[demo] typst.dpi: must be of type "integer", got "high".',
+      'the validator message is reported unchanged, with the extension name')
+  end
+
+  -- Without a schema, or without a `cells` section, there is nothing to check
+  -- against and the options come back as they went in.
+  do
+    install_stubs()
+    local broken = check_mod.new(
+      stub_validator({ err = 'Could not open schema file: _schema.yml' }), 'demo')
+    local given = { dpi = '300' }
+    check(broken:cells(given, 'typst') == given,
+      'without a schema `cells` hands back the table it was given', 'a different table')
+    equal(#recorded, 1, 'without a schema `cells` reports nothing further')
+
+    install_stubs()
+    local spec = { schema = schema_with({}) }
+    local bare = check_mod.new(stub_validator(spec), 'demo')
+    local held = { dpi = '300' }
+    check(bare:cells(held, 'typst') == held,
+      'with no `cells` section the table is handed back', 'a different table')
+    equal(spec.cell_calls, nil, 'with no `cells` section the validator is not called')
+    equal(#recorded, 0, 'with no `cells` section nothing is reported')
+  end
+
+  -- A language that is not a string is the same caller fault `format` guards,
+  -- and it is reported rather than looked up.
+  do
+    install_stubs()
+    local spec = { schema = { options = {}, shortcodes = {}, cells = { typst = {} } } }
+    local checker = check_mod.new(stub_validator(spec), 'demo')
+    equal(checker:cells({ dpi = '300' }, nil), nil, '`cells` without a language answers nothing')
+    equal(#recorded, 1, 'a missing language is reported once')
+    equal(recorded[1] and recorded[1].level, 'error', 'a missing language is an error')
+
+    install_stubs()
+    local other = check_mod.new(stub_validator(spec), 'demo')
+    equal(other:cells({ dpi = '300' }, {}), nil, '`cells` given a table language answers nothing')
+    equal(#recorded, 1, 'a language that is not a string is reported once')
+    equal(spec.cell_calls, nil, 'a language that is not a string is not looked up')
+  end
+
+  -- The same allowance `attributes` makes. `validate_cells` is newer than the
+  -- base contract, so a validator vendored before it exists is reported once
+  -- for the render rather than called.
+  do
+    install_stubs()
+    local validator = stub_validator({
+      schema = { options = {}, shortcodes = {}, cells = { typst = {} } },
+    })
+    validator.validate_cells = nil
+    local checker = check_mod.new(validator, 'demo')
+
+    local given = { dpi = '300' }
+    local ok, merged = pcall(checker.cells, checker, given, 'typst')
+    check(ok, 'a validator without `validate_cells` does not raise',
+      not ok and tostring(merged) or nil)
+    check(ok and merged == given, 'the cell options are handed back unchanged',
+      'a different table')
+    equal(#recorded, 1, 'a validator without `validate_cells` is reported once')
+    equal(recorded[1] and recorded[1].level, 'error',
+      'a validator that cannot check cells is an error')
+
+    checker:cells({ dpi = '72' }, 'typst')
+    checker:cells({ dpi = '96' }, 'python')
+    equal(#recorded, 1, 'a validator without `validate_cells` is reported once per render')
   end
 
   -- An unknown option is advice, not a failure.

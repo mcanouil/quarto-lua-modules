@@ -16,11 +16,12 @@
 --- vendored copy of this module then knows nothing about where the validator
 --- was vendored, so the two sources stay independent. The validator must
 --- provide `load_schema`, `validate`, `validate_shortcode`,
---- `extract_meta_options`, `validate_attributes` and `validate_format`.
+--- `extract_meta_options`, `validate_attributes`, `validate_format` and
+--- `validate_cells`.
 ---
---- The last two are newer than the rest of that list, so a validator vendored
---- before either exists is reported rather than called. The others are required
---- outright and a validator without one of them raises.
+--- The last three are newer than the rest of that list, so a validator
+--- vendored before one of them exists is reported rather than called. The
+--- others are required outright and a validator without one of them raises.
 ---
 --- `validate_format` must also be the one that reads the top level of the
 --- metadata, which is Quarto Wizard 3.6.0 or newer. An older one looks for the
@@ -73,7 +74,8 @@ local str = load_sibling('string.lua')
 --- A finding about an element's attribute is a warning instead. The attribute
 --- stays on the element whatever the schema says, so the rendered output does
 --- not change because of it, which is the reason a shortcode attribute is a
---- warning too.
+--- warning too. A cell option is the same: this module reports it and hands
+--- the options back, and the cell renders whatever the finding says.
 ---
 --- `misuse` is the one kind that is not about the document. It reports a fault
 --- in the extension calling this module, and it is an error because the caller
@@ -91,6 +93,8 @@ local SEVERITY = {
   attribute_warning = 'warning',
   format_error = 'error',
   format_warning = 'warning',
+  cell_error = 'warning',
+  cell_warning = 'warning',
 }
 
 --- The reporting function for each level.
@@ -218,9 +222,9 @@ end
 
 --- Whether the validator provides one function, reporting it once if not.
 ---
---- `validate_attributes` and `validate_format` are newer than the rest of the
---- contract, so a validator vendored before either exists satisfies everything
---- else and still lacks them. Calling one raises, and a raise removes the
+--- `validate_attributes`, `validate_format` and `validate_cells` are newer than
+--- the rest of the contract, so a validator vendored before one of them exists
+--- satisfies everything else and still lacks them. Calling one raises, and a raise removes the
 --- document, which is the one thing this module promises not to do.
 ---
 --- It is reported once for the render rather than once for each caller. A
@@ -410,6 +414,52 @@ function Checker:attributes(attributes, group)
   return resolved
 end
 
+--- Check one code cell's comment-pipe options against the `cells` section, and
+--- return what they resolve to.
+---
+--- The section is keyed by cell language, so an extension that handles `typst`
+--- cells checks those cells and nothing else. Checking them under `attributes`
+--- would also match a `{.typst}` block that only displays code, which carries
+--- the same class and none of the same options.
+---
+--- The validator matches the language and leaves Quarto's own options, such as
+--- `label` and `echo`, alone, because they share the same `#|` and `//|`
+--- lines. A language the schema does not declare hands the options back.
+---
+--- This reports only, as `attributes` does. The cell renders whatever the
+--- finding says, so a finding here is a warning.
+--- @param options table<string, any> The cell's comment-pipe options
+--- @param language string The cell language, as the schema declares it
+--- @return table<string, any>|nil resolved The options with the schema applied
+function Checker:cells(options, language)
+  if type(language) ~= 'string' then
+    self:_report('misuse', string.format(
+      'schema-check: the language given to `cells` must be a string, got %s', type(language)))
+    return nil
+  end
+
+  options = options or {}
+
+  --- @type table|nil
+  local loaded = self.schema
+  if loaded == nil or next(loaded.cells or {}) == nil then
+    return options
+  end
+  if not self:_provides('validate_cells') then
+    return options
+  end
+
+  local _, errors, warnings, merged =
+    self.validator.validate_cells(options, language, loaded)
+  for _, message in ipairs(errors) do
+    self:_report('cell_error', message)
+  end
+  for _, message in ipairs(warnings) do
+    self:_report('cell_warning', message)
+  end
+  return merged
+end
+
 --- Check one output format's options against the `formats` section, and return
 --- what they resolve to.
 ---
@@ -545,8 +595,8 @@ end
 --- schema is, and the checker it builds belongs at file scope, so that the
 --- schema is read once for the render and not once for each call.
 --- @param validator table The validator, with `load_schema`, `validate`,
----   `validate_shortcode`, `extract_meta_options`, `validate_attributes` and
----   `validate_format`
+---   `validate_shortcode`, `extract_meta_options`, `validate_attributes`,
+---   `validate_format` and `validate_cells`
 --- @param extension_name string The extension name every message carries
 --- @param schema_path string|nil The schema to read, relative to the entry
 ---   point that is running. Defaults to `_schema.yml`.
