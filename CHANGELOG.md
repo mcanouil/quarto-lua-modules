@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- feat: Add `Checker:cells`, which checks the comment-pipe options of one code cell against the `cells` section and returns what they resolve to. It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`.
+- feat: Add `Checker:cells`, which checks the comment-pipe options of one code cell against the `cells` section and returns what they resolve to. It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`. (#16)
 
 ## 2.5.1 (2026-10-18)
 
