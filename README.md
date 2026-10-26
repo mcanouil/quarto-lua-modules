@@ -38,6 +38,7 @@ local defaults, resolved = checker:options(meta)
 local inline = checker:option('inline')
 local attributes = checker:attributes(el.attributes, 'CodeBlock')
 local format = checker:format('letter-pdf')
+local cell = checker:cells(cell_options, 'typst')
 checker:call('iconify', args, kwargs)
 ```
 
@@ -49,6 +50,10 @@ Read it rather than the document, so that the schema decides what counts as true
 
 `attributes` checks one element against the `attributes` section and returns what its attributes resolve to.
 Both the element's own group and `_any` apply, the named group last.
+
+`cells` checks the comment-pipe options of one code cell (`#|`, `//|`) against the `cells` section and returns what they resolve to.
+The cell language picks the group, so a `{.typst}` block that only displays code is not checked as a `typst` cell.
+It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`.
 
 `format` checks one output format against the `formats` section, after `options` has run.
 Quarto merges the options of the selected format into the top level of the metadata, so the extension names its own format, as it names an attribute group.
