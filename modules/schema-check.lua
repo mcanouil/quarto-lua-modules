@@ -220,6 +220,20 @@ function Checker:_report(kind, message)
   REPORTERS[level](self.extension, message)
 end
 
+--- Report a validator's errors and warnings under one kind's pair of levels.
+--- @param kind string The prefix of a `<kind>_error` and `<kind>_warning` pair in `SEVERITY`
+--- @param errors string[] The validator's errors
+--- @param warnings string[] The validator's warnings
+--- @return nil
+function Checker:_report_findings(kind, errors, warnings)
+  for _, message in ipairs(errors) do
+    self:_report(kind .. '_error', message)
+  end
+  for _, message in ipairs(warnings) do
+    self:_report(kind .. '_warning', message)
+  end
+end
+
 --- Whether the validator provides one function, reporting it once if not.
 ---
 --- `validate_attributes`, `validate_format` and `validate_cells` are newer than
@@ -403,12 +417,7 @@ function Checker:attributes(attributes, group)
   for _, name in ipairs(groups) do
     local _, errors, warnings, merged =
       self.validator.validate_attributes(resolved, name, loaded)
-    for _, message in ipairs(errors) do
-      self:_report('attribute_error', message)
-    end
-    for _, message in ipairs(warnings) do
-      self:_report('attribute_warning', message)
-    end
+    self:_report_findings('attribute', errors, warnings)
     resolved = merged
   end
   return resolved
@@ -451,12 +460,7 @@ function Checker:cells(options, language)
 
   local _, errors, warnings, merged =
     self.validator.validate_cells(options, language, loaded)
-  for _, message in ipairs(errors) do
-    self:_report('cell_error', message)
-  end
-  for _, message in ipairs(warnings) do
-    self:_report('cell_warning', message)
-  end
+  self:_report_findings('cell', errors, warnings)
   return merged
 end
 
@@ -501,12 +505,7 @@ function Checker:format(name)
 
   local _, errors, warnings, merged =
     self.validator.validate_format(self.meta, name, loaded)
-  for _, message in ipairs(errors) do
-    self:_report('format_error', message)
-  end
-  for _, message in ipairs(warnings) do
-    self:_report('format_warning', message)
-  end
+  self:_report_findings('format', errors, warnings)
 
   self.formats[name] = merged
   return merged
