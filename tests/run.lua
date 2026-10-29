@@ -379,7 +379,7 @@ do
       end
       return previous_getenv(name)
     end
-    fn()
+    fn(value)
   end
 
   --- Point QUARTO_EXECUTE_INFO at a file holding `content`, or at a path that
@@ -390,7 +390,7 @@ do
       if content ~= nil then
         write(path, content)
       end
-      with_env(path, function() fn(path) end)
+      with_env(path, fn)
     end)
   end
 
