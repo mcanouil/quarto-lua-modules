@@ -43,6 +43,17 @@ local function check(ok, description, detail)
   end
 end
 
+--- Print the summary line and end the run. A reader, and an agent, tells a
+--- load failure from a broad assertion failure by how far the run got, so
+--- every planned way out of the suite goes through here.
+local exit = os.exit
+
+local function finish()
+  io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
+  io.stdout:flush()
+  exit(failed == 0 and 0 or 1, true)
+end
+
 local function equal(actual, expected, description)
   check(actual == expected, description,
     string.format('expected %s, got %s', tostring(expected), tostring(actual)))
@@ -103,10 +114,18 @@ local modules = {}
 for _, name in ipairs(names) do
   local ok, loaded = pcall(load_module, name)
   check(ok and type(loaded) == 'table', string.format('`%s` loads and returns a table', name),
-    not ok and tostring(loaded) or nil)
+    not ok and tostring(loaded) or ('it returned a ' .. type(loaded)))
   if ok then
     modules[name] = loaded
   end
+end
+
+-- Stop here, on purpose. The sections that follow index the modules that
+-- loaded, so one that failed its load check would end the run mid-section
+-- with no summary, and the renders after it would only add noise.
+if failed > 0 then
+  io.stdout:write('\n# stopped: a module failed its load check, so the sections that use it cannot run\n')
+  finish()
 end
 
 io.stdout:write('# loading from an extension\n')
@@ -1357,6 +1376,4 @@ do
   _G.quarto = previous_quarto
 end
 
-io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
-io.stdout:flush()
-os.exit(failed == 0 and 0 or 1, true)
+finish()
