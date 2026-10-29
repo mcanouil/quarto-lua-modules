@@ -46,10 +46,12 @@ end
 --- Print the summary line and end the run. A reader, and an agent, tells a
 --- load failure from a broad assertion failure by how far the run got, so
 --- every planned way out of the suite goes through here.
+local exit = os.exit
+
 local function finish()
   io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
   io.stdout:flush()
-  os.exit(failed == 0 and 0 or 1, true)
+  exit(failed == 0 and 0 or 1, true)
 end
 
 local function equal(actual, expected, description)
