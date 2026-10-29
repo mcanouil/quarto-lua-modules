@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- feat: Add `get_project_metadata`, which returns the project's `format.metadata` table from the `QUARTO_EXECUTE_INFO` file. When the file is set but can't be used, it returns `nil` and a short reason, so each extension can stay silent or warn in its own words.
-- feat: `get_project_repo_url` takes an optional `format_meta` table. An extension that has already read the project metadata no longer reads the file a second time.
-- fix: `get_project_repo_url` returns `nil` when `QUARTO_EXECUTE_INFO` holds JSON that isn't an object. It used to raise an error and stop the filter.
+- feat: Add `get_project_metadata`, which returns the project's `format.metadata` table from the `QUARTO_EXECUTE_INFO` file. When the file is set but can't be used, it returns `nil` and a short reason, so each extension can stay silent or warn in its own words. (#19)
+- feat: `get_project_repo_url` takes an optional `format_meta` table. An extension that has already read the project metadata no longer reads the file a second time. (#19)
+- fix: `get_project_repo_url` returns `nil` when `QUARTO_EXECUTE_INFO` holds JSON that isn't an object. It used to raise an error and stop the filter. (#19)
 
 ## 2.6.0 (2026-10-26)
 
