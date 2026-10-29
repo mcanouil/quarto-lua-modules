@@ -223,33 +223,28 @@ function M.get_project_metadata()
 end
 
 --- Get repo-url from Quarto project metadata via QUARTO_EXECUTE_INFO.
---- Reads the JSON file pointed to by the QUARTO_EXECUTE_INFO environment variable
---- and extracts repo-url from website or book metadata.
+--- Extracts repo-url from website or book metadata, website first.
+--- The QUARTO_EXECUTE_INFO file is read only when no table is given.
+--- @param format_meta table|nil The project format.metadata table, as returned
+---   by get_project_metadata; read from QUARTO_EXECUTE_INFO when nil
 --- @return string|nil The repo-url value, or nil if not available
-function M.get_project_repo_url()
-  local path = os.getenv("QUARTO_EXECUTE_INFO")
-  if not path then return nil end
+--- @usage local repo_url = M.get_project_repo_url(format_meta)
+function M.get_project_repo_url(format_meta)
+  if format_meta ~= nil and type(format_meta) ~= "table" then
+    error("get_project_repo_url: format_meta must be a table or nil, got " .. type(format_meta), 2)
+  end
+  if format_meta == nil then
+    format_meta = M.get_project_metadata()
+    if not format_meta then return nil end
+  end
 
-  local file = io.open(path, "r")
-  if not file then return nil end
-
-  local content = file:read("*a")
-  file:close()
-
-  if str.is_empty(content) then return nil end
-
-  local ok, info = pcall(quarto.json.decode, content)
-  if not ok or not info then return nil end
-
-  local format_meta = info["format"] and info["format"]["metadata"]
-  if not format_meta then return nil end
-
-  -- Try website.repo-url first, then book.repo-url
+  local website = format_meta["website"]
+  local book = format_meta["book"]
   local repo_url = nil
-  if format_meta["website"] and format_meta["website"]["repo-url"] then
-    repo_url = format_meta["website"]["repo-url"]
-  elseif format_meta["book"] and format_meta["book"]["repo-url"] then
-    repo_url = format_meta["book"]["repo-url"]
+  if type(website) == "table" and website["repo-url"] then
+    repo_url = website["repo-url"]
+  elseif type(book) == "table" and book["repo-url"] then
+    repo_url = book["repo-url"]
   end
 
   if str.is_empty(repo_url) then return nil end

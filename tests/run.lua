@@ -456,6 +456,50 @@ do
         'get_project_metadata gives the same result on a second call',
         string.format('got %s, %s', tostring(first), tostring(second)))
     end)
+
+    local function repo_url_for(content, description, expected)
+      with_execute_info(content, function()
+        returns(description, expected, metadata.get_project_repo_url)
+      end)
+    end
+
+    repo_url_for('{"format":{"metadata":{"website":{"repo-url":"https://w"}}}}',
+      'get_project_repo_url reads website.repo-url', 'https://w')
+    repo_url_for('{"format":{"metadata":{"book":{"repo-url":"https://b"}}}}',
+      'get_project_repo_url falls back to book.repo-url', 'https://b')
+    repo_url_for('{"format":{"metadata":{"website":{"repo-url":"https://w"},"book":{"repo-url":"https://b"}}}}',
+      'get_project_repo_url prefers website over book', 'https://w')
+    repo_url_for('{"format":{"metadata":{}}}', 'get_project_repo_url returns nil with neither', nil)
+    repo_url_for('{"format":{"metadata":{"website":{"repo-url":""},"book":{"repo-url":"https://b"}}}}',
+      'get_project_repo_url returns nil for an empty repo-url', nil)
+    repo_url_for('"x"', 'get_project_repo_url tolerates a JSON string', nil)
+    repo_url_for('{"format":{"metadata":{"website":"x","book":{"repo-url":"https://b"}}}}',
+      'get_project_repo_url tolerates a non-table website', 'https://b')
+    repo_url_for('{"format":{"metadata":{"book":42}}}', 'get_project_repo_url tolerates a numeric book', nil)
+
+    --- Count the reads of QUARTO_EXECUTE_INFO, which points at a file whose
+    --- repo-url differs from the one passed in.
+    local function counts_reads(format_meta, description, expected)
+      with_execute_info('{"format":{"metadata":{"website":{"repo-url":"https://file"}}}}', function()
+        local reads = 0
+        local stubbed = os.getenv
+        os.getenv = function(name)
+          if name == 'QUARTO_EXECUTE_INFO' then
+            reads = reads + 1
+          end
+          return stubbed(name)
+        end
+        returns(description, expected, metadata.get_project_repo_url, format_meta)
+        equal(reads, 0, description .. ' without reading QUARTO_EXECUTE_INFO')
+      end)
+    end
+
+    counts_reads({ website = { ['repo-url'] = 'https://arg' } },
+      'get_project_repo_url uses a given table', 'https://arg')
+    counts_reads({}, 'get_project_repo_url reads nothing for an empty table', nil)
+
+    local rejected = pcall(metadata.get_project_repo_url, 'x')
+    check(not rejected, 'get_project_repo_url rejects a non-table argument')
   end)
 
   os.getenv = previous_getenv
