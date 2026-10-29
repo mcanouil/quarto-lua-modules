@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- feat: `get_project_metadata` returns the `QUARTO_EXECUTE_INFO` path as a third value with each reason, so a caller can name the file without reading the variable again. Its four reasons are now a stable API that callers can compare against.
+- feat: `get_project_metadata` returns the `QUARTO_EXECUTE_INFO` path as a third value with each reason, so a caller can name the file without reading the variable again. Its four reasons are now a stable API that callers can compare against. (#21)
 
 ## 2.7.0 (2026-10-29)
 
