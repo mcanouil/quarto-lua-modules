@@ -71,6 +71,12 @@ local function returns(description, expected, fn, ...)
     string.format('expected %s, got %s', tostring(expected), tostring(actual)))
 end
 
+local function write(path, text)
+  local handle = assert(io.open(path, 'w'))
+  handle:write(text)
+  handle:close()
+end
+
 --- Every function a module exports, so a new one cannot be added untested
 --- without this list disagreeing with the module.
 local EXPECTED = {
@@ -147,11 +153,6 @@ do
   check(#with_siblings == 6, 'six modules load a sibling', table.concat(with_siblings, ', '))
   local function quote(text)
     return "'" .. text:gsub("'", "'\\''") .. "'"
-  end
-  local function write(path, text)
-    local handle = assert(io.open(path, 'w'))
-    handle:write(text)
-    handle:close()
   end
   pandoc.system.with_temporary_directory('lua-modules', function(tmp)
     local project = tmp .. '/with space'
@@ -387,9 +388,7 @@ do
     pandoc.system.with_temporary_directory('metadata', function(tmp)
       local path = tmp .. '/info.json'
       if content ~= nil then
-        local handle = assert(io.open(path, 'w'))
-        handle:write(content)
-        handle:close()
+        write(path, content)
       end
       with_env(path, fn)
     end)

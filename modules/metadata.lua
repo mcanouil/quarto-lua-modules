@@ -230,17 +230,16 @@ end
 --- @return string|nil The repo-url value, or nil if not available
 --- @usage local repo_url = M.get_project_repo_url(format_meta)
 function M.get_project_repo_url(format_meta)
-  if format_meta ~= nil and type(format_meta) ~= "table" then
-    error("get_project_repo_url: format_meta must be a table or nil, got " .. type(format_meta), 2)
-  end
   if format_meta == nil then
     format_meta = M.get_project_metadata()
     if not format_meta then return nil end
+  elseif type(format_meta) ~= "table" then
+    error("get_project_repo_url: format_meta must be a table or nil, got " .. type(format_meta), 2)
   end
 
   local website = format_meta["website"]
   local book = format_meta["book"]
-  local repo_url = nil
+  local repo_url
   if type(website) == "table" and website["repo-url"] then
     repo_url = website["repo-url"]
   elseif type(book) == "table" and book["repo-url"] then
