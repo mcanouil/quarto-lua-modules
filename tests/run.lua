@@ -390,15 +390,17 @@ do
       if content ~= nil then
         write(path, content)
       end
-      with_env(path, fn)
+      with_env(path, function() fn(path) end)
     end)
   end
 
-  local function reports(description, expected_reason)
-    local ok, format_meta, reason = pcall(metadata.get_project_metadata)
-    check(ok and format_meta == nil and reason == expected_reason, description,
-      ok and string.format('expected nil, %s; got %s, %s',
-        tostring(expected_reason), tostring(format_meta), tostring(reason))
+  local function reports(description, expected_reason, expected_path)
+    local ok, format_meta, reason, path = pcall(metadata.get_project_metadata)
+    check(ok and format_meta == nil and reason == expected_reason and path == expected_path,
+      description,
+      ok and string.format('expected nil, %s, %s; got %s, %s, %s',
+        tostring(expected_reason), tostring(expected_path),
+        tostring(format_meta), tostring(reason), tostring(path))
       or ('raised: ' .. tostring(format_meta)))
   end
 
@@ -423,7 +425,10 @@ do
     with_env('', function()
       reports('get_project_metadata is silent when QUARTO_EXECUTE_INFO is empty', nil)
     end)
-    reports_for(nil, 'get_project_metadata reports a file that cannot be opened', 'file is unreadable')
+    with_execute_info(nil, function(path)
+      reports('get_project_metadata reports a file that cannot be opened, with its path',
+        'file is unreadable', path)
+    end)
     reports_for('', 'get_project_metadata reports an empty file', 'file is empty')
     reports_for('{bad', 'get_project_metadata reports invalid JSON', 'invalid JSON')
     reports_for('  \n', 'get_project_metadata reports whitespace-only content as invalid JSON',
