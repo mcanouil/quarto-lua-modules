@@ -45,7 +45,7 @@ end
 
 --- Print the summary line and end the run. A reader, and an agent, tells a
 --- load failure from a broad assertion failure by how far the run got, so
---- every way out of the suite goes through here.
+--- every planned way out of the suite goes through here.
 local function finish()
   io.stdout:write(string.format('\n%d checks, %d failed\n', passed + failed, failed))
   io.stdout:flush()
@@ -112,16 +112,16 @@ local modules = {}
 for _, name in ipairs(names) do
   local ok, loaded = pcall(load_module, name)
   check(ok and type(loaded) == 'table', string.format('`%s` loads and returns a table', name),
-    not ok and tostring(loaded) or nil)
+    not ok and tostring(loaded) or ('it returned a ' .. type(loaded)))
   if ok then
     modules[name] = loaded
   end
 end
 
 -- Every section below indexes a module it expects to have loaded, so one that
--- did not would end the run mid-section with no summary.
+-- failed its load check would end the run mid-section with no summary.
 if failed > 0 then
-  io.stdout:write('\n# stopped: a module did not load, so the sections that use it cannot run\n')
+  io.stdout:write('\n# stopped: a module failed its load check, so the sections that use it cannot run\n')
   finish()
 end
 
