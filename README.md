@@ -14,7 +14,7 @@ They are meant to be vendored. Quarto ships no package manager for Lua, so an ex
 | `html.lua` | Builds raw HTML and registers HTML dependencies. |
 | `logging.lua` | Writes messages prefixed with the extension name. |
 | `lookup.lua` | Membership tests and keyword mapping. |
-| `metadata.lua` | Reads extension configuration out of document metadata. |
+| `metadata.lua` | Reads extension configuration out of document metadata, and project metadata out of `QUARTO_EXECUTE_INFO`. |
 | `pandoc-helpers.lua` | Builds Pandoc elements and detects the output format. |
 | `paths.lua` | Resolves a path relative to the project and checks a URI's file type. |
 | `schema-check.lua` | Checks a document and a shortcode call against the extension's `_schema.yml`. |
