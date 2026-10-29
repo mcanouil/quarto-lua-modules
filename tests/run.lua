@@ -118,8 +118,9 @@ for _, name in ipairs(names) do
   end
 end
 
--- Every section below indexes a module it expects to have loaded, so one that
--- failed its load check would end the run mid-section with no summary.
+-- Stop here, on purpose. The sections that follow index the modules that
+-- loaded, so one that failed its load check would end the run mid-section
+-- with no summary, and the renders after it would only add noise.
 if failed > 0 then
   io.stdout:write('\n# stopped: a module failed its load check, so the sections that use it cannot run\n')
   finish()
