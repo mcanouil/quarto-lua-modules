@@ -405,7 +405,7 @@ do
   end
 
   local function reports_for(content, description, expected_reason)
-    with_execute_info(content, function() reports(description, expected_reason) end)
+    with_execute_info(content, function(path) reports(description, expected_reason, path) end)
   end
 
   local function returns_blocks(content, description, predicate)
@@ -425,10 +425,7 @@ do
     with_env('', function()
       reports('get_project_metadata is silent when QUARTO_EXECUTE_INFO is empty', nil)
     end)
-    with_execute_info(nil, function(path)
-      reports('get_project_metadata reports a file that cannot be opened, with its path',
-        'file is unreadable', path)
-    end)
+    reports_for(nil, 'get_project_metadata reports a file that cannot be opened', 'file is unreadable')
     reports_for('', 'get_project_metadata reports an empty file', 'file is empty')
     reports_for('{bad', 'get_project_metadata reports invalid JSON', 'invalid JSON')
     reports_for('  \n', 'get_project_metadata reports whitespace-only content as invalid JSON',

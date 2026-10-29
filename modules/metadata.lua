@@ -200,8 +200,7 @@ end
 ---   change to any of them is a breaking change. They are exactly
 ---   "file is unreadable", "file is empty", "invalid JSON" and
 ---   "no format.metadata table".
---- @return string|nil path The QUARTO_EXECUTE_INFO path, only with the
----   "file is unreadable" reason
+--- @return string|nil path The QUARTO_EXECUTE_INFO path, with every reason
 --- @usage local format_meta, reason, path = M.get_project_metadata()
 --- @note quarto-cli's decoder raises on bad JSON, while q2's (pandoc.json)
 ---   returns nil, so a nil result is also reported as invalid JSON.
@@ -215,14 +214,14 @@ function M.get_project_metadata()
   local content = file:read("*a")
   file:close()
 
-  if str.is_empty(content) then return nil, "file is empty" end
+  if str.is_empty(content) then return nil, "file is empty", path end
 
   local ok, info = pcall(quarto.json.decode, content)
-  if not ok or info == nil then return nil, "invalid JSON" end
+  if not ok or info == nil then return nil, "invalid JSON", path end
 
   if type(info) ~= "table" or type(info["format"]) ~= "table"
       or type(info["format"]["metadata"]) ~= "table" then
-    return nil, "no format.metadata table"
+    return nil, "no format.metadata table", path
   end
 
   return info["format"]["metadata"]
