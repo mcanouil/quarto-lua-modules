@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `get_project_metadata`, which returns the project's `format.metadata` table from the `QUARTO_EXECUTE_INFO` file. When the file is set but can't be used, it returns `nil` and a short reason, so each extension can stay silent or warn in its own words.
+
 ## 2.6.0 (2026-10-26)
 
 - feat: Add `Checker:cells`, which checks the comment-pipe options of one code cell against the `cells` section and returns what they resolve to. It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`. (#16)

@@ -84,7 +84,7 @@ local EXPECTED = {
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
   metadata = { 'get_extension_config', 'get_metadata_value', 'check_deprecated_config',
-    'get_option_with_fallbacks', 'get_options', 'get_project_repo_url' },
+    'get_option_with_fallbacks', 'get_options', 'get_project_metadata', 'get_project_repo_url' },
   ['pandoc-helpers'] = { 'create_link', 'attr', 'has_class', 'add_class', 'get_quarto_format',
     'is_object_empty', 'is_type_simple', 'is_function_userdata', 'get_value',
     'attributes_to_table' },
@@ -349,6 +349,118 @@ do
   end
 
   _G.quarto = previous
+end
+
+io.stdout:write('# metadata\n')
+
+do
+  -- Lua cannot set an environment variable, and `quarto pandoc lua` has no
+  -- `quarto` global, so `os.getenv` and `quarto.json` are stood in for while
+  -- the project metadata reader runs against fixture files. The decoder is
+  -- `pandoc.json`, which is what q2 provides as `quarto.json`: it returns nil
+  -- on bad JSON where quarto-cli's decoder raises, and both must be covered.
+  local metadata = modules['metadata']
+  local previous_getenv = os.getenv
+  local previous_quarto = _G.quarto
+  local function decode(text)
+    return pandoc.json.decode(text, false)
+  end
+  _G.quarto = { json = { decode = decode } }
+
+  local WEBSITE = '{"format":{"metadata":{"website":{"title":"W"}}}}'
+  local BOOK = '{"format":{"metadata":{"book":{"title":"B"}}}}'
+  local BOTH = '{"format":{"metadata":{"website":{"title":"W"},"book":{"title":"B"}}}}'
+
+  local function with_env(value, fn)
+    os.getenv = function(name)
+      if name == 'QUARTO_EXECUTE_INFO' then
+        return value
+      end
+      return previous_getenv(name)
+    end
+    fn()
+  end
+
+  --- Point QUARTO_EXECUTE_INFO at a file holding `content`, or at a path that
+  --- does not exist when `content` is nil.
+  local function with_execute_info(content, fn)
+    pandoc.system.with_temporary_directory('metadata', function(tmp)
+      local path = tmp .. '/info.json'
+      if content ~= nil then
+        local handle = assert(io.open(path, 'w'))
+        handle:write(content)
+        handle:close()
+      end
+      with_env(path, fn)
+    end)
+  end
+
+  local function reports(description, expected_reason)
+    local ok, format_meta, reason = pcall(metadata.get_project_metadata)
+    check(ok and format_meta == nil and reason == expected_reason, description,
+      ok and string.format('expected nil, %s; got %s, %s',
+        tostring(expected_reason), tostring(format_meta), tostring(reason))
+      or ('raised: ' .. tostring(format_meta)))
+  end
+
+  local function reports_for(content, description, expected_reason)
+    with_execute_info(content, function() reports(description, expected_reason) end)
+  end
+
+  local function returns_blocks(content, description, predicate)
+    with_execute_info(content, function()
+      local ok, format_meta, reason = pcall(metadata.get_project_metadata)
+      check(ok and reason == nil and type(format_meta) == 'table' and predicate(format_meta),
+        description,
+        ok and string.format('got %s, %s', tostring(format_meta), tostring(reason))
+        or ('raised: ' .. tostring(format_meta)))
+    end)
+  end
+
+  local ok, err = pcall(function()
+    with_env(nil, function()
+      reports('get_project_metadata is silent when QUARTO_EXECUTE_INFO is unset', nil)
+    end)
+    with_env('', function()
+      reports('get_project_metadata is silent when QUARTO_EXECUTE_INFO is empty', nil)
+    end)
+    reports_for(nil, 'get_project_metadata reports a file that cannot be opened', 'file is unreadable')
+    reports_for('', 'get_project_metadata reports an empty file', 'file is empty')
+    reports_for('{bad', 'get_project_metadata reports invalid JSON', 'invalid JSON')
+    reports_for('  \n', 'get_project_metadata reports whitespace-only content as invalid JSON',
+      'invalid JSON')
+    _G.quarto.json.decode = function() error('boom') end
+    reports_for('{}', 'get_project_metadata reports a decoder that raises as invalid JSON',
+      'invalid JSON')
+    _G.quarto.json.decode = decode
+    reports_for('"x"', 'get_project_metadata rejects a JSON string', 'no format.metadata table')
+    reports_for('42', 'get_project_metadata rejects a JSON number', 'no format.metadata table')
+    reports_for('{}', 'get_project_metadata rejects JSON with no format', 'no format.metadata table')
+    reports_for('{"format":{"metadata":"x"}}', 'get_project_metadata rejects a non-table format.metadata',
+      'no format.metadata table')
+
+    returns_blocks(WEBSITE, 'get_project_metadata returns a website-only block', function(m)
+      return m.website.title == 'W' and m.book == nil
+    end)
+    returns_blocks(BOOK, 'get_project_metadata returns a book-only block', function(m)
+      return m.book.title == 'B' and m.website == nil
+    end)
+    returns_blocks(BOTH, 'get_project_metadata returns both blocks', function(m)
+      return m.website.title == 'W' and m.book.title == 'B'
+    end)
+    with_execute_info(WEBSITE, function()
+      local first_ok, first = pcall(metadata.get_project_metadata)
+      local second_ok, second = pcall(metadata.get_project_metadata)
+      check(first_ok and second_ok and type(first) == 'table' and type(second) == 'table'
+        and first.website.title == 'W' and second.website.title == 'W',
+        'get_project_metadata gives the same result on a second call',
+        string.format('got %s, %s', tostring(first), tostring(second)))
+    end)
+  end)
+
+  os.getenv = previous_getenv
+  _G.quarto = previous_quarto
+  check(ok, 'the metadata checks ran without raising', err)
 end
 
 io.stdout:write('# schema-check\n')

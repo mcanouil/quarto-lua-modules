@@ -188,6 +188,40 @@ end
 -- PROJECT METADATA UTILITIES
 -- ============================================================================
 
+--- Get project-level metadata from Quarto via QUARTO_EXECUTE_INFO.
+--- Reads and decodes the JSON file pointed to by the QUARTO_EXECUTE_INFO
+--- environment variable and returns its format.metadata table, which holds
+--- the website and book configuration that document metadata lacks.
+--- The file is read on every call; pass the result on rather than calling twice.
+--- @return table|nil format_meta The format.metadata table, or nil if unavailable
+--- @return string|nil reason Why the file could not be used when
+---   QUARTO_EXECUTE_INFO is set; nil when it is unset or empty
+--- @usage local format_meta, reason = M.get_project_metadata()
+--- @note quarto-cli's decoder raises on bad JSON, while q2's (pandoc.json)
+---   returns nil, so a nil result is also reported as invalid JSON.
+function M.get_project_metadata()
+  local path = os.getenv("QUARTO_EXECUTE_INFO")
+  if str.is_empty(path) then return nil end
+
+  local file = io.open(path, "r")
+  if not file then return nil, "file is unreadable" end
+
+  local content = file:read("*a")
+  file:close()
+
+  if str.is_empty(content) then return nil, "file is empty" end
+
+  local ok, info = pcall(quarto.json.decode, content)
+  if not ok or info == nil then return nil, "invalid JSON" end
+
+  if type(info) ~= "table" or type(info["format"]) ~= "table"
+      or type(info["format"]["metadata"]) ~= "table" then
+    return nil, "no format.metadata table"
+  end
+
+  return info["format"]["metadata"]
+end
+
 --- Get repo-url from Quarto project metadata via QUARTO_EXECUTE_INFO.
 --- Reads the JSON file pointed to by the QUARTO_EXECUTE_INFO environment variable
 --- and extracts repo-url from website or book metadata.
