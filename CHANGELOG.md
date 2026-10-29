@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: `get_project_metadata` returns the `QUARTO_EXECUTE_INFO` path as a third value with each reason, so a caller can name the file without reading the variable again. Its four reasons are now a stable API that callers can compare against. (#21)
+
 ## 2.7.0 (2026-10-29)
 
 - feat: Add `get_project_metadata`, which returns the project's `format.metadata` table from the `QUARTO_EXECUTE_INFO` file. When the file is set but can't be used, it returns `nil` and a short reason, so each extension can stay silent or warn in its own words. (#19)

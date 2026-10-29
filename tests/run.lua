@@ -379,7 +379,7 @@ do
       end
       return previous_getenv(name)
     end
-    fn()
+    fn(value)
   end
 
   --- Point QUARTO_EXECUTE_INFO at a file holding `content`, or at a path that
@@ -394,16 +394,18 @@ do
     end)
   end
 
-  local function reports(description, expected_reason)
-    local ok, format_meta, reason = pcall(metadata.get_project_metadata)
-    check(ok and format_meta == nil and reason == expected_reason, description,
-      ok and string.format('expected nil, %s; got %s, %s',
-        tostring(expected_reason), tostring(format_meta), tostring(reason))
+  local function reports(description, expected_reason, expected_path)
+    local ok, format_meta, reason, path = pcall(metadata.get_project_metadata)
+    check(ok and format_meta == nil and reason == expected_reason and path == expected_path,
+      description,
+      ok and string.format('expected nil, %s, %s; got %s, %s, %s',
+        tostring(expected_reason), tostring(expected_path),
+        tostring(format_meta), tostring(reason), tostring(path))
       or ('raised: ' .. tostring(format_meta)))
   end
 
   local function reports_for(content, description, expected_reason)
-    with_execute_info(content, function() reports(description, expected_reason) end)
+    with_execute_info(content, function(path) reports(description, expected_reason, path) end)
   end
 
   local function returns_blocks(content, description, predicate)
