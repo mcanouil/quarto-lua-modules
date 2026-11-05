@@ -83,7 +83,7 @@ local EXPECTED = {
   colour = { 'is_named_colour', 'expand_hex_colour', 'RGB_to_HTML', 'RGBPercent_to_HTML',
     'hue_to_rgb', 'HSL_to_HTML', 'HWB_to_HTML', 'named_to_HTML', 'to_html', 'get_colour',
     'is_custom_colour' },
-  ['content-extraction'] = { 'extract_section', 'extract_div', 'find_block', 'protect_headers',
+  ['content-extraction'] = { 'extract_section', 'remove_sections', 'extract_div', 'find_block', 'protect_headers',
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
   html = { 'raw_header', 'ensure_html_dependency', 'reset_dependencies' },
@@ -321,6 +321,90 @@ do
   returns('has_class finds a class that is present', true, helpers.has_class, div.attr.classes, 'note')
   returns('has_class rejects a class that is not', false, helpers.has_class, div.attr.classes, 'absent')
   returns('has_class tolerates a nil class list', false, helpers.has_class, nil, 'note')
+end
+
+io.stdout:write('# content-extraction\n')
+
+do
+  local extraction = modules['content-extraction']
+
+  local function header(level, id)
+    return pandoc.Header(level, id, pandoc.Attr(id))
+  end
+  local function para(text)
+    return pandoc.Para({ pandoc.Str(text) })
+  end
+  local function matches(id)
+    return function(h) return h.identifier == id end
+  end
+  local function describe(blocks)
+    local parts = {}
+    for _, block in ipairs(blocks) do
+      parts[#parts + 1] = block.t == 'Header' and ('H' .. block.level .. ':' .. block.identifier) or block.t
+    end
+    return table.concat(parts, ',')
+  end
+  local function document()
+    return { header(2, 'a'), para('1'), header(3, 'b'), para('2'), header(2, 'c'), para('3') }
+  end
+
+  local empty_kept, empty_removed = extraction.remove_sections(nil, matches('a'))
+  equal(#empty_kept + #empty_removed, 0, 'remove_sections gives two empty lists for a nil input')
+
+  local ok, message = pcall(extraction.remove_sections, document(), nil)
+  check(not ok and tostring(message):find('remove_sections: predicate must be a function', 1, true) ~= nil,
+    'remove_sections rejects a predicate that is not a function', tostring(message))
+
+  local ok_blocks, blocks_message = pcall(extraction.remove_sections, 'not blocks', matches('a'))
+  check(not ok_blocks and tostring(blocks_message):find('remove_sections: blocks must be a list of Pandoc blocks', 1, true) ~= nil,
+    'remove_sections rejects blocks that are not a list', tostring(blocks_message))
+
+  local kept, removed = extraction.remove_sections(document(), matches('a'))
+  equal(describe(kept), 'H2:c,Para', 'a matching h2 removes its section and its h3')
+  equal(#removed, 4, 'a matching h2 removes four blocks')
+  equal(describe(removed), 'H2:a,Para,H3:b,Para', 'removed blocks keep the document order')
+  equal(pandoc.utils.type(kept), 'Blocks', 'remove_sections returns the kept blocks as pandoc.Blocks')
+  equal(pandoc.utils.type(removed), 'Blocks', 'remove_sections returns the removed blocks as pandoc.Blocks')
+
+  kept = extraction.remove_sections(document(), matches('b'))
+  equal(describe(kept), 'H2:a,Para,H2:c,Para', 'a matching h3 keeps its h2')
+
+  local last
+  kept, last = extraction.remove_sections({ header(2, 'a'), para('1'), header(2, 'c') }, matches('c'))
+  equal(describe(kept), 'H2:a,Para', 'a match on the last block keeps the blocks before it')
+  equal(#last, 1, 'a match on the last block removes only that block')
+
+  kept, removed = extraction.remove_sections(document(), function(h)
+    return h.identifier == 'a' or h.identifier == 'c'
+  end)
+  equal(#kept, 0, 'two adjacent matches leave nothing')
+  equal(#removed, 6, 'two adjacent matches remove every block')
+
+  local seen = {}
+  extraction.remove_sections(document(), function(h)
+    seen[#seen + 1] = h.identifier
+    return h.identifier == 'a'
+  end)
+  equal(table.concat(seen, ','), 'a,c', 'the predicate is not called inside a removed section')
+
+  kept, removed = extraction.remove_sections(
+    { header(2, 'a'), para('1'), pandoc.HorizontalRule(), para('2'), header(2, 'c') }, matches('a'))
+  equal(describe(removed), 'H2:a,Para,HorizontalRule,Para', 'a horizontal rule does not end a section')
+  equal(describe(kept), 'H2:c', 'the section after a horizontal rule is kept')
+
+  local from_table = describe((extraction.remove_sections(document(), matches('a'))))
+  local from_blocks = describe((extraction.remove_sections(pandoc.Blocks(document()), matches('a'))))
+  equal(from_table, from_blocks, 'a plain table and pandoc.Blocks give the same result')
+
+  local input = document()
+  extraction.remove_sections(input, matches('a'))
+  equal(#input, 6, 'the input list does not change')
+
+  local section = extraction.extract_section(document(), 'a', true)
+  equal(section and describe(section), 'H2:a,Para,H3:b,Para', 'extract_section returns the section with its header')
+  section = extraction.extract_section(document(), 'a', false)
+  equal(section and describe(section), 'Para,H3:b,Para', 'extract_section drops the header on request')
+  equal(extraction.extract_section(document(), 'missing'), nil, 'extract_section gives nil for a missing id')
 end
 
 io.stdout:write('# logging\n')
