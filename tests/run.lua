@@ -355,10 +355,16 @@ do
   check(not ok and tostring(message):find('remove_sections: predicate must be a function', 1, true) ~= nil,
     'remove_sections rejects a predicate that is not a function', tostring(message))
 
+  local ok_blocks, blocks_message = pcall(extraction.remove_sections, 'not blocks', matches('a'))
+  check(not ok_blocks and tostring(blocks_message):find('remove_sections: blocks must be a list of Pandoc blocks', 1, true) ~= nil,
+    'remove_sections rejects blocks that are not a list', tostring(blocks_message))
+
   local kept, removed = extraction.remove_sections(document(), matches('a'))
   equal(describe(kept), 'H2:c,Para', 'a matching h2 removes its section and its h3')
   equal(#removed, 4, 'a matching h2 removes four blocks')
   equal(describe(removed), 'H2:a,Para,H3:b,Para', 'removed blocks keep the document order')
+  equal(pandoc.utils.type(kept), 'Blocks', 'remove_sections returns the kept blocks as pandoc.Blocks')
+  equal(pandoc.utils.type(removed), 'Blocks', 'remove_sections returns the removed blocks as pandoc.Blocks')
 
   kept = extraction.remove_sections(document(), matches('b'))
   equal(describe(kept), 'H2:a,Para,H2:c,Para', 'a matching h3 keeps its h2')

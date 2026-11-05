@@ -104,6 +104,9 @@ function M.remove_sections(blocks, predicate)
   if type(predicate) ~= 'function' then
     error('remove_sections: predicate must be a function', 2)
   end
+  if blocks ~= nil and type(blocks) ~= 'table' then
+    error('remove_sections: blocks must be a list of Pandoc blocks', 2)
+  end
 
   --- @type pandoc.Blocks Blocks that stay in the document
   local kept = pandoc.Blocks({})
