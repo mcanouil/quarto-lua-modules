@@ -29,6 +29,14 @@ local html = load_sibling('html.lua')
 -- SECTION EXTRACTION
 -- ============================================================================
 
+--- Test if a block ends a section that a header of a given level started.
+--- @param block table Pandoc block
+--- @param level integer Level of the header that started the section
+--- @return boolean True if the block is a header of the same or a higher level
+local function ends_section(block, level)
+  return block.t == 'Header' and block.level <= level
+end
+
 --- Extract section from blocks by header ID.
 --- Finds a header with the specified identifier and extracts all content
 --- until the next header of the same or higher level.
@@ -64,7 +72,7 @@ function M.extract_section(blocks, section_id, include_header)
       end
     elseif found then
       -- We're inside the target section
-      if block.t == 'Header' and block.level <= section_level then
+      if ends_section(block, section_level) then
         -- Reached next header of same or higher level, stop
         break
       end
@@ -97,28 +105,28 @@ function M.remove_sections(blocks, predicate)
     error('remove_sections: predicate must be a function', 2)
   end
 
-  --- @type table<integer, table> Blocks that stay in the document
-  local kept = {}
-  --- @type table<integer, table> Blocks that belong to a removed section
-  local removed = {}
+  --- @type pandoc.Blocks Blocks that stay in the document
+  local kept = pandoc.Blocks({})
+  --- @type pandoc.Blocks Blocks that belong to a removed section
+  local removed = pandoc.Blocks({})
   --- @type integer|nil Level of the header that started the current removal
   local removed_level = nil
 
   for _, block in ipairs(blocks or {}) do
-    if removed_level ~= nil and block.t == 'Header' and block.level <= removed_level then
+    if removed_level ~= nil and ends_section(block, removed_level) then
       removed_level = nil
     end
     if removed_level == nil and block.t == 'Header' and predicate(block) then
       removed_level = block.level
     end
     if removed_level ~= nil then
-      table.insert(removed, block)
+      removed:insert(block)
     else
-      table.insert(kept, block)
+      kept:insert(block)
     end
   end
 
-  return pandoc.Blocks(kept), pandoc.Blocks(removed)
+  return kept, removed
 end
 
 --- Extract div from blocks by div ID.
