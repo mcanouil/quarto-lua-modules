@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `remove_sections`, which removes each section whose header matches a predicate and returns the kept and the removed blocks.
+
 ## 2.8.0 (2026-10-29)
 
 - feat: `get_project_metadata` returns the `QUARTO_EXECUTE_INFO` path as a third value with each reason, so a caller can name the file without reading the variable again. Its four reasons are now a stable API that callers can compare against. (#21)

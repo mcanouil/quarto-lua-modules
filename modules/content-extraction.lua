@@ -80,6 +80,47 @@ function M.extract_section(blocks, section_id, include_header)
   return section_blocks
 end
 
+--- Remove each section whose header matches a predicate.
+--- A section starts at a matching header. It ends before the next header
+--- with a level equal to or lower than the matching header, or at the end of
+--- the list. The function works on one level only and does not go into a Div.
+--- It calls the predicate for headers only, and not for headers inside a
+--- section that it has already removed. It does not copy blocks.
+---
+--- @param blocks table|nil Pandoc Blocks or a Lua array (one level)
+--- @param predicate function function(header) -> boolean
+--- @return pandoc.Blocks kept A new list, and the input does not change
+--- @return pandoc.Blocks removed The removed blocks, in document order
+--- @usage local kept, removed = M.remove_sections(blocks, function(h) return h.identifier == "draft" end)
+function M.remove_sections(blocks, predicate)
+  if type(predicate) ~= 'function' then
+    error('remove_sections: predicate must be a function', 2)
+  end
+
+  --- @type table<integer, table> Blocks that stay in the document
+  local kept = {}
+  --- @type table<integer, table> Blocks that belong to a removed section
+  local removed = {}
+  --- @type integer|nil Level of the header that started the current removal
+  local removed_level = nil
+
+  for _, block in ipairs(blocks or {}) do
+    if removed_level ~= nil and block.t == 'Header' and block.level <= removed_level then
+      removed_level = nil
+    end
+    if removed_level == nil and block.t == 'Header' and predicate(block) then
+      removed_level = block.level
+    end
+    if removed_level ~= nil then
+      table.insert(removed, block)
+    else
+      table.insert(kept, block)
+    end
+  end
+
+  return pandoc.Blocks(kept), pandoc.Blocks(removed)
+end
+
 --- Extract div from blocks by div ID.
 --- Recursively searches through blocks to find a Div with the specified identifier
 --- and returns its contents.
