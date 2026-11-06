@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.9.0 (2026-11-06)
+
 - feat: Add `remove_sections`, which removes each section whose header matches a predicate and returns the kept and the removed blocks.
 
 ## 2.8.0 (2026-10-29)
