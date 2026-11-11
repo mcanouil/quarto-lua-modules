@@ -207,7 +207,10 @@ do
       if os.execute(engine .. ' --version > /dev/null 2>&1') then
         local page, output = render(engine)
         check(page:find(expected, 1, true) ~= nil, description, output:sub(-600))
-        check(page:find('probe-3.2.1/probe.js', 1, true) ~= nil,
+        -- quarto-cli names the folder `probe-3.2.1/`, and q2 nests the
+        -- version as `probe/3.2.1/`.
+        local dependency = engine == 'q2' and 'probe/3.2.1/probe.js' or 'probe-3.2.1/probe.js'
+        check(page:find(dependency, 1, true) ~= nil,
           engine .. ' names the dependency folder with the manifest version', output:sub(-600))
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
