@@ -141,7 +141,6 @@ function M.ensure_html_dependency(config)
   if not config or not config.name then
     error("HTML dependency configuration must include a 'name' field")
   end
-  config.version = config.version or M.get_extension_version()
 
   --- @type string Unique key for this dependency
   local dep_key = config.name
@@ -152,6 +151,7 @@ function M.ensure_html_dependency(config)
   end
 
   -- Add the dependency
+  config.version = config.version or M.get_extension_version()
   quarto.doc.add_html_dependency(config)
 
   -- Mark as added

@@ -1707,14 +1707,21 @@ do
     from(root .. '/two')
     returns('the second of two extensions gets its own version', '2.0.0', html.get_extension_version)
 
-    from(root .. '/plain')
+    manifest(root .. '/dep', 'version: 3.0.0\n')
+    from(root .. '/dep')
     html.ensure_html_dependency({ name = 'x' })
-    equal(added and added.version, '1.4.1',
+    equal(added and added.version, '3.0.0',
       '`ensure_html_dependency` takes the manifest version when none is given')
 
     from(root .. '/plain')
     html.ensure_html_dependency({ name = 'y', version = '4.1.1' })
     equal(added and added.version, '4.1.1', 'an explicit version wins over the manifest')
+
+    from(root .. '/none/filters')
+    html.ensure_html_dependency({ name = 'twice', version = '1.0.0' })
+    local again_ok, again = pcall(html.ensure_html_dependency, { name = 'twice' })
+    check(again_ok and again == false,
+      'a dependency already added is skipped without reading a version', tostring(again))
 
     from(root .. '/none/filters')
     local dep_ok = pcall(html.ensure_html_dependency, { name = 'z' })
