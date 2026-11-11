@@ -90,6 +90,7 @@ end
 --- Get the version of the extension that is running, from its `_extension.yml`.
 --- The search starts in the directory of the running entry point and goes up
 --- to the extension's own directory, the one directly inside `_extensions`.
+--- An entry point outside `_extensions` has only its own directory searched.
 ---
 --- @return string The version
 --- @usage local version = M.get_extension_version()
@@ -97,6 +98,10 @@ function M.get_extension_version()
   local start = pandoc.path.directory(quarto.utils.resolve_path('_extension.yml'))
   if version_cache[start] then
     return version_cache[start]
+  end
+  local in_extensions = false
+  for _, part in ipairs(pandoc.path.split(start)) do
+    in_extensions = in_extensions or part == '_extensions'
   end
   local searched = {}
   local dir = start
@@ -109,7 +114,7 @@ function M.get_extension_version()
       return version
     end
     local parent = pandoc.path.directory(dir)
-    if parent == dir or pandoc.path.filename(dir) == '_extensions'
+    if not in_extensions or parent == dir or pandoc.path.filename(dir) == '_extensions'
         or pandoc.path.filename(parent) == '_extensions' then
       break
     end

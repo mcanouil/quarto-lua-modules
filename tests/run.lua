@@ -1679,6 +1679,18 @@ do
     check(not ok and tostring(err):find('add `version:` to `_extension.yml`', 1, true) ~= nil,
       'the error says how to fix it', tostring(err))
 
+    -- A manifest above the extension, or above an entry point that is not in
+    -- an extension at all, belongs to something else and is never read.
+    write(tmp .. '/_extension.yml', 'version: 0.0.0\n')
+    from(root .. '/none/filters')
+    check(not pcall(html.get_extension_version),
+      'the search stops at the extension directory inside `_extensions`')
+    pandoc.system.make_directory(tmp .. '/outside/sub', true)
+    from(tmp .. '/outside/sub')
+    local outside_ok, outside = pcall(html.get_extension_version)
+    check(not outside_ok, 'outside `_extensions` only the entry point directory is searched',
+      'it returned ' .. tostring(outside))
+
     manifest(root .. '/one', 'version: 1.0.0\n')
     manifest(root .. '/two', 'version: 2.0.0\n')
     from(root .. '/one')
