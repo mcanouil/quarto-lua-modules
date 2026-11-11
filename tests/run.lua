@@ -173,11 +173,11 @@ do
     lines[#lines + 1] = "local ok, header = pcall(html.raw_header, 2, 'T', 'a&b')"
     lines[#lines + 1] = "loaded[#loaded + 1] = 'escaped=' .. tostring(ok and header:find('a&amp;b', 1, true) ~= nil)"
     expected[#expected + 1] = 'escaped=true'
-    -- Called from a shortcode, so the manifest is found from the entry point
-    -- that is running and not from the vendored module.
-    lines[#lines + 1] = "html.ensure_html_dependency({ name = 'probe', scripts = { 'probe.js' } })"
     expected = table.concat(expected, ',')
-    lines[#lines + 1] = "return { probe = function() return pandoc.Str(table.concat(loaded, ',')) end }"
+    lines[#lines + 1] = "return { probe = function()"
+    lines[#lines + 1] = "  html.ensure_html_dependency({ name = 'probe', scripts = { 'probe.js' } })"
+    lines[#lines + 1] = "  return pandoc.Str(table.concat(loaded, ','))"
+    lines[#lines + 1] = "end }"
     write(project .. '/_extensions/probe/probe.lua', table.concat(lines, '\n') .. '\n')
     write(project .. '/_extensions/probe/_extension.yml',
       'title: Probe\nversion: 3.2.1\ncontributes:\n  shortcodes:\n    - probe.lua\n')
@@ -1690,6 +1690,15 @@ do
     local outside_ok, outside = pcall(html.get_extension_version)
     check(not outside_ok, 'outside `_extensions` only the entry point directory is searched',
       'it returned ' .. tostring(outside))
+
+    -- The first manifest found is the extension's own, even without a
+    -- version, so an `<owner>/_extension.yml` above it is never read.
+    manifest(root .. '/owner', 'version: 0.0.1\n')
+    manifest(root .. '/owner/named', 'title: Named\n')
+    from(root .. '/owner/named')
+    local named_ok, named = pcall(html.get_extension_version)
+    check(not named_ok, 'the search stops at the first manifest, even one without a version',
+      'it returned ' .. tostring(named))
 
     manifest(root .. '/one', 'version: 1.0.0\n')
     manifest(root .. '/two', 'version: 2.0.0\n')

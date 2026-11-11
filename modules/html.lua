@@ -70,11 +70,12 @@ local version_cache = {}
 
 --- Read the top-level `version:` value of one `_extension.yml`.
 --- @param path string Path of the manifest
+--- @return boolean True if the file exists
 --- @return string|nil The version, or nil if the file or the key is missing
 local function read_manifest_version(path)
   local handle = io.open(path, 'r')
   if not handle then
-    return nil
+    return false, nil
   end
   local version
   for line in handle:lines() do
@@ -84,13 +85,14 @@ local function read_manifest_version(path)
     end
   end
   handle:close()
-  return version
+  return true, version
 end
 
 --- Get the version of the extension that is running, from its `_extension.yml`.
 --- The search starts in the directory of the running entry point and goes up
 --- to the extension's own directory, the one directly inside `_extensions`.
---- An entry point outside `_extensions` has only its own directory searched.
+--- It stops at the first `_extension.yml` it finds, which is the extension's
+--- own. An entry point outside `_extensions` has only its own directory searched.
 ---
 --- @return string The version
 --- @usage local version = M.get_extension_version()
@@ -108,13 +110,13 @@ function M.get_extension_version()
   while true do
     local path = pandoc.path.join({ dir, '_extension.yml' })
     searched[#searched + 1] = path
-    local version = read_manifest_version(path)
+    local found, version = read_manifest_version(path)
     if version then
       version_cache[start] = version
       return version
     end
     local parent = pandoc.path.directory(dir)
-    if not in_extensions or parent == dir or pandoc.path.filename(dir) == '_extensions'
+    if found or not in_extensions or parent == dir or pandoc.path.filename(dir) == '_extensions'
         or pandoc.path.filename(parent) == '_extensions' then
       break
     end
@@ -129,7 +131,8 @@ end
 --- Prevents duplicate dependency injection by tracking dependencies by name.
 --- Returns true if dependency was added, false if already present.
 --- Without a `version`, the version of the running extension is used, so the
---- dependency folder changes with each release.
+--- dependency folder changes with each release. A caller whose entry point is
+--- not inside `_extensions` must pass `version`.
 ---
 --- @param config table Dependency configuration with fields: name (required), version, scripts, stylesheets, head
 --- @return boolean True if dependency was added, false if already added
