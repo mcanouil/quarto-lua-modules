@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: `ensure_html_dependency` now reads the extension version from `_extension.yml` when you leave out `version`, so the dependency folder changes with each release. The new `get_extension_version` returns that version, and raises an error when the manifest has none, so a filter outside `_extensions` must pass `version`.
+
 ## 2.9.0 (2026-11-06)
 
 - feat: Add `remove_sections`, which removes each section whose header matches a predicate and returns the kept and the removed blocks.
