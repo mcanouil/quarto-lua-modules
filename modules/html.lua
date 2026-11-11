@@ -89,10 +89,10 @@ local function read_manifest_version(path)
 end
 
 --- Get the version of the extension that is running, from its `_extension.yml`.
---- The search starts in the directory of the running entry point and goes up
---- to the extension's own directory, the one directly inside `_extensions`.
---- It stops at the first `_extension.yml` it finds, which is the extension's
---- own. An entry point outside `_extensions` has only its own directory searched.
+--- The search starts in the directory of the running entry point and goes up.
+--- It stops at the first `_extension.yml` it finds, with or without a version,
+--- and never leaves the `_extensions` folder. An entry point outside
+--- `_extensions` has only its own directory searched.
 ---
 --- @return string The version
 --- @usage local version = M.get_extension_version()
