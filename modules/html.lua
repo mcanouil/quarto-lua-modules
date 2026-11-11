@@ -64,17 +64,76 @@ end
 --- @type table<string, boolean>
 local dependency_tracker = {}
 
+--- Extension versions already read, keyed by the directory of the entry point.
+--- @type table<string, string>
+local version_cache = {}
+
+--- Read the top-level `version:` value of one `_extension.yml`.
+--- @param path string Path of the manifest
+--- @return string|nil The version, or nil if the file or the key is missing
+local function read_manifest_version(path)
+  local handle = io.open(path, 'r')
+  if not handle then
+    return nil
+  end
+  local version
+  for line in handle:lines() do
+    version = line:match('^version:%s*["\']?([^"\'%s]+)')
+    if version then
+      break
+    end
+  end
+  handle:close()
+  return version
+end
+
+--- Get the version of the extension that is running, from its `_extension.yml`.
+--- The search starts in the directory of the running entry point and goes up
+--- to the extension's own directory, the one directly inside `_extensions`.
+---
+--- @return string The version
+--- @usage local version = M.get_extension_version()
+function M.get_extension_version()
+  local start = pandoc.path.directory(quarto.utils.resolve_path('_extension.yml'))
+  if version_cache[start] then
+    return version_cache[start]
+  end
+  local searched = {}
+  local dir = start
+  while true do
+    local path = pandoc.path.join({ dir, '_extension.yml' })
+    searched[#searched + 1] = path
+    local version = read_manifest_version(path)
+    if version then
+      version_cache[start] = version
+      return version
+    end
+    local parent = pandoc.path.directory(dir)
+    if parent == dir or pandoc.path.filename(dir) == '_extensions'
+        or pandoc.path.filename(parent) == '_extensions' then
+      break
+    end
+    dir = parent
+  end
+  error(string.format(
+    'No extension version found in %s. Pass `version` explicitly or add `version:` to `_extension.yml`.',
+    table.concat(searched, ', ')))
+end
+
 --- Ensure HTML dependency is added only once per document.
 --- Prevents duplicate dependency injection by tracking dependencies by name.
 --- Returns true if dependency was added, false if already present.
+--- Without a `version`, the version of the running extension is used, so the
+--- dependency folder changes with each release.
 ---
 --- @param config table Dependency configuration with fields: name (required), version, scripts, stylesheets, head
 --- @return boolean True if dependency was added, false if already added
---- @usage M.ensure_html_dependency({name = 'my-lib', version = '1.0.0', scripts = {'lib.js'}})
+--- @usage M.ensure_html_dependency({name = 'my-lib', scripts = {'lib.js'}})
 function M.ensure_html_dependency(config)
   if not config or not config.name then
     error("HTML dependency configuration must include a 'name' field")
   end
+  config.version = config.version or M.get_extension_version()
 
   --- @type string Unique key for this dependency
   local dep_key = config.name

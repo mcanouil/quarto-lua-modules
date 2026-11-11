@@ -86,7 +86,7 @@ local EXPECTED = {
   ['content-extraction'] = { 'extract_section', 'remove_sections', 'extract_div', 'find_block', 'protect_headers',
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
-  html = { 'raw_header', 'ensure_html_dependency', 'reset_dependencies' },
+  html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
   metadata = { 'get_extension_config', 'get_metadata_value', 'check_deprecated_config',
@@ -173,11 +173,15 @@ do
     lines[#lines + 1] = "local ok, header = pcall(html.raw_header, 2, 'T', 'a&b')"
     lines[#lines + 1] = "loaded[#loaded + 1] = 'escaped=' .. tostring(ok and header:find('a&amp;b', 1, true) ~= nil)"
     expected[#expected + 1] = 'escaped=true'
+    -- Called from a shortcode, so the manifest is found from the entry point
+    -- that is running and not from the vendored module.
+    lines[#lines + 1] = "html.ensure_html_dependency({ name = 'probe', scripts = { 'probe.js' } })"
     expected = table.concat(expected, ',')
     lines[#lines + 1] = "return { probe = function() return pandoc.Str(table.concat(loaded, ',')) end }"
     write(project .. '/_extensions/probe/probe.lua', table.concat(lines, '\n') .. '\n')
     write(project .. '/_extensions/probe/_extension.yml',
-      'title: Probe\nversion: 1.0.0\ncontributes:\n  shortcodes:\n    - probe.lua\n')
+      'title: Probe\nversion: 3.2.1\ncontributes:\n  shortcodes:\n    - probe.lua\n')
+    write(project .. '/_extensions/probe/probe.js', '')
     write(project .. '/_quarto.yml', 'project:\n  type: default\n')
     write(project .. '/doc.qmd', '---\ntitle: Probe\nformat: html\n---\n\n{{< probe >}}\n')
 
@@ -203,6 +207,8 @@ do
       if os.execute(engine .. ' --version > /dev/null 2>&1') then
         local page, output = render(engine)
         check(page:find(expected, 1, true) ~= nil, description, output:sub(-600))
+        check(page:find('probe-3.2.1/probe.js', 1, true) ~= nil,
+          engine .. ' names the dependency folder with the manifest version', output:sub(-600))
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
       end
@@ -1614,6 +1620,88 @@ do
   equal(exits, 0, 'no path calls `os.exit`')
 
   os.exit = previous_exit
+  _G.quarto = previous_quarto
+end
+
+
+io.stdout:write('# html\n')
+
+do
+  -- `resolve_path` answers relative to the running entry point, so the stub
+  -- answers relative to a fixture directory, and the dependency Quarto would
+  -- add is recorded instead.
+  local html = modules['html']
+  local previous_quarto = _G.quarto
+  local added
+
+  local function from(dir)
+    added = nil
+    html.reset_dependencies()
+    _G.quarto = {
+      utils = { resolve_path = function(path) return dir .. '/' .. path end },
+      doc = { add_html_dependency = function(config) added = config end },
+    }
+  end
+
+  local function manifest(dir, text)
+    pandoc.system.make_directory(dir, true)
+    write(dir .. '/_extension.yml', text)
+  end
+
+  pandoc.system.with_temporary_directory('lua-modules-html', function(tmp)
+    local root = tmp .. '/_extensions'
+
+    manifest(root .. '/plain', 'title: Plain\nversion: 1.4.1\n')
+    from(root .. '/plain')
+    returns('the version is read from `_extension.yml`', '1.4.1', html.get_extension_version)
+
+    manifest(root .. '/quoted', 'title: Quoted\r\nversion: "1.2.3"\r\n')
+    from(root .. '/quoted')
+    returns('a quoted version with CRLF line endings is read without quotes', '1.2.3',
+      html.get_extension_version)
+
+    manifest(root .. '/nested', 'contributes:\n  version: 9.9.9\nversion: 2.0.0\n')
+    from(root .. '/nested')
+    returns('only the top-level `version:` key counts', '2.0.0', html.get_extension_version)
+
+    manifest(root .. '/deep', 'version: 5.0.0\n')
+    pandoc.system.make_directory(root .. '/deep/filters', true)
+    from(root .. '/deep/filters')
+    returns('an entry point in a subfolder finds the manifest above it', '5.0.0',
+      html.get_extension_version)
+
+    pandoc.system.make_directory(root .. '/none/filters', true)
+    from(root .. '/none/filters')
+    local ok, err = pcall(html.get_extension_version)
+    check(not ok, 'a missing manifest raises an error', 'it returned ' .. tostring(err))
+    check(not ok and tostring(err):find(root .. '/none/_extension.yml', 1, true) ~= nil,
+      'the error names the manifest path it searched', tostring(err))
+    check(not ok and tostring(err):find('add `version:` to `_extension.yml`', 1, true) ~= nil,
+      'the error says how to fix it', tostring(err))
+
+    manifest(root .. '/one', 'version: 1.0.0\n')
+    manifest(root .. '/two', 'version: 2.0.0\n')
+    from(root .. '/one')
+    returns('the first of two extensions gets its own version', '1.0.0', html.get_extension_version)
+    from(root .. '/two')
+    returns('the second of two extensions gets its own version', '2.0.0', html.get_extension_version)
+
+    from(root .. '/plain')
+    html.ensure_html_dependency({ name = 'x' })
+    equal(added and added.version, '1.4.1',
+      '`ensure_html_dependency` takes the manifest version when none is given')
+
+    from(root .. '/plain')
+    html.ensure_html_dependency({ name = 'y', version = '4.1.1' })
+    equal(added and added.version, '4.1.1', 'an explicit version wins over the manifest')
+
+    from(root .. '/none/filters')
+    local dep_ok = pcall(html.ensure_html_dependency, { name = 'z' })
+    check(not dep_ok and added == nil,
+      '`ensure_html_dependency` raises and adds nothing when no version can be read')
+  end)
+
+  html.reset_dependencies()
   _G.quarto = previous_quarto
 end
 
