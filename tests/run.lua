@@ -86,6 +86,7 @@ local EXPECTED = {
   ['content-extraction'] = { 'extract_section', 'remove_sections', 'extract_div', 'find_block', 'protect_headers',
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
+  embedded = { 'load' },
   html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
@@ -1734,6 +1735,266 @@ do
 
   html.reset_dependencies()
   _G.quarto = previous_quarto
+end
+
+io.stdout:write('# embedded\n')
+
+do
+  -- Quarto keeps a stack of running scripts, and `resolve_path` answers
+  -- relative to its top. The stub keeps the same stack and, like Quarto's
+  -- `withScriptFile`, returns only the first value of the callback, so the
+  -- checks see what a bundled filter sees inside a real render.
+  local embedded = modules['embedded']
+  local previous_quarto, previous_internal = _G.quarto, _G._quarto
+  local stack, debug_messages = {}, {}
+
+  _G._quarto = {
+    withScriptFile = function(file, callback)
+      table.insert(stack, file)
+      local result = callback()
+      table.remove(stack, #stack)
+      return result
+    end,
+  }
+  _G.embedded_test_top = function() return stack[#stack] end
+
+  local function project(root)
+    _G.quarto = {
+      project = { directory = root },
+      log = { debug = function(message) debug_messages[#debug_messages + 1] = message end },
+    }
+  end
+
+  local function manifest(dir, name)
+    pandoc.system.make_directory(dir, true)
+    write(dir .. '/' .. (name or '_extension.yml'), 'title: Copy\n')
+  end
+
+  pandoc.system.with_temporary_directory('lua-modules-embedded', function(tmp)
+    local entry = tmp .. '/bundled/veil/veil.lua'
+    pandoc.system.make_directory(tmp .. '/bundled/veil', true)
+    write(entry, table.concat({
+      'loaded_from = PANDOC_SCRIPT_FILE',
+      'return { {',
+      '  traverse = "topdown",',
+      '  Str = function(el) return el, false end,',
+      '} }',
+    }, '\n'))
+
+    --- Load the bundled entry from a project, and tell whether it was skipped.
+    local function skipped_in(root)
+      project(root)
+      return next(embedded.load('veil', entry)) == nil
+    end
+
+    pandoc.system.make_directory(tmp .. '/empty', true)
+    check(not skipped_in(tmp .. '/empty'), 'a project without `_extensions` has no copy')
+
+    manifest(tmp .. '/owned/_extensions/local/veil')
+    check(skipped_in(tmp .. '/owned'), 'a copy under `_extensions/<owner>/<name>` is found')
+
+    manifest(tmp .. '/bare/_extensions/veil')
+    check(skipped_in(tmp .. '/bare'), 'a copy under `_extensions/<name>` is found')
+
+    manifest(tmp .. '/yaml/_extensions/local/veil', '_extension.yaml')
+    check(skipped_in(tmp .. '/yaml'), 'a copy with `_extension.yaml` is found')
+
+    manifest(tmp .. '/other/_extensions/local/other')
+    check(not skipped_in(tmp .. '/other'), 'a copy of another extension does not count')
+
+    check(not skipped_in(nil), 'a render outside a project has no copy')
+
+    debug_messages = {}
+    skipped_in(tmp .. '/owned')
+    equal(#debug_messages, 1, 'the skip is logged once at debug level')
+    check((debug_messages[1] or ''):find(tmp .. '/owned/_extensions/local/veil', 1, true) ~= nil,
+      'the message names the project copy', debug_messages[1])
+
+    project(tmp .. '/empty')
+    local filters = embedded.load('veil', entry)
+    equal(#filters, 1, 'without a project copy, the list of filters is kept')
+    local filter = filters[1] or {}
+    equal(filter.traverse, 'topdown', 'a field that is not a function is kept as it is')
+    local first, second = filter.Str(pandoc.Str('x'))
+    check(first ~= nil and first.text == 'x' and second == false,
+      'a handler keeps every value it returns', tostring(second))
+
+    local env_entry = tmp .. '/bundled/veil/env.lua'
+    write(env_entry, 'return { Para = function() return embedded_test_top() end }')
+    local single = embedded.load('veil', env_entry)
+    check(#single == 1 and type(single[1].Para) == 'function',
+      'a single filter table is returned as a list of one filter')
+    equal(single[1].Para(pandoc.Para({})), env_entry,
+      'a handler runs with the bundled entry on top of the script stack')
+
+    local global_entry = tmp .. '/bundled/veil/global.lua'
+    write(global_entry, 'function Para(el) return el end\nfile_seen = PANDOC_SCRIPT_FILE\n')
+    local collected = embedded.load('veil', global_entry)[1] or {}
+    check(type(collected.Para) == 'function',
+      'an entry that returns nothing gives the functions it defines as its filter')
+    equal(collected.file_seen, nil, 'only functions are collected from such an entry')
+
+    local probe_entry = tmp .. '/bundled/veil/probe.lua'
+    write(probe_entry, table.concat({
+      'local at_load = embedded_test_top()',
+      'return { Meta = function() return PANDOC_SCRIPT_FILE end, Div = function() return at_load end }',
+    }, '\n'))
+    local probe = embedded.load('veil', probe_entry)[1]
+    equal(probe.Meta(nil), probe_entry, 'the entry sees its own path as `PANDOC_SCRIPT_FILE`')
+    equal(probe.Div(nil), probe_entry, 'the entry loads with itself on top of the script stack')
+    equal(rawget(_G, 'loaded_from'), nil, 'the entry does not write to the global environment')
+
+    local mismatch_ok, mismatch = pcall(embedded.load, 'prism', entry)
+    check(not mismatch_ok and tostring(mismatch):find('prism', 1, true) ~= nil
+      and tostring(mismatch):find(entry, 1, true) ~= nil,
+      'a name that is not the folder of the entry raises an error with both', tostring(mismatch))
+
+    local internal = _G._quarto
+    _G._quarto = nil
+    local missing_ok, missing = pcall(embedded.load, 'veil', entry)
+    _G._quarto = internal
+    check(not missing_ok and tostring(missing):find('_quarto.withScriptFile', 1, true) ~= nil
+      and tostring(missing):find(entry, 1, true) ~= nil,
+      'without the internal Quarto API, `load` names it and the entry', tostring(missing))
+
+    _G._quarto = nil
+    project(tmp .. '/owned')
+    local skip_ok, skip = pcall(embedded.load, 'veil', entry)
+    _G._quarto = internal
+    check(skip_ok and next(skip) == nil,
+      'with a project copy, `load` skips without the internal Quarto API', tostring(skip))
+
+    manifest(tmp .. '/loose/_extensions/local/veil')
+    project(nil)
+    _G.quarto.doc = { input_file = tmp .. '/loose/doc.qmd' }
+    check(next(embedded.load('veil', entry)) == nil,
+      'outside a project, a copy next to the input file is found')
+
+    local scalar_entry = tmp .. '/bundled/veil/scalar.lua'
+    write(scalar_entry, 'return true')
+    project(tmp .. '/empty')
+    local scalar_ok, scalar = pcall(embedded.load, 'veil', scalar_entry)
+    check(not scalar_ok and tostring(scalar):find(scalar_entry, 1, true) ~= nil
+      and tostring(scalar):find('boolean', 1, true) ~= nil,
+      'an entry that returns something other than a filter raises an error naming it', tostring(scalar))
+
+    manifest(tmp .. '/nested/posts/one/_extensions/local/veil')
+    pandoc.system.make_directory(tmp .. '/nested/_extensions', true)
+    project(tmp .. '/nested')
+    _G.quarto.doc = { input_file = tmp .. '/nested/posts/one/index.qmd' }
+    check(next(embedded.load('veil', entry)) == nil,
+      'in a project, a copy next to an input file in a subfolder is found')
+
+    local list_entry = tmp .. '/bundled/veil/list.lua'
+    write(list_entry, 'return { function() end }')
+    project(tmp .. '/empty')
+    local list_ok, list_err = pcall(embedded.load, 'veil', list_entry)
+    check(not list_ok and tostring(list_err):find(list_entry, 1, true) ~= nil
+      and tostring(list_err):find('1', 1, true) ~= nil,
+      'a list item that is not a filter raises an error naming the entry and the item', tostring(list_err))
+
+    local topdown_entry = tmp .. '/bundled/veil/topdown.lua'
+    write(topdown_entry, 'traverse = "topdown"\nfunction Para(el) return el end\n')
+    local topdown = embedded.load('veil', topdown_entry)[1] or {}
+    equal(topdown.traverse, 'topdown', 'an entry that returns nothing keeps its `traverse` setting')
+    equal(topdown.PANDOC_SCRIPT_FILE, nil, 'the injected script path is not part of the filter')
+  end)
+
+  _G.embedded_test_top = nil
+  _G.quarto, _G._quarto = previous_quarto, previous_internal
+end
+
+io.stdout:write('# embedded in a render\n')
+
+--- A filter extension bundles `veil` under its own `_extensions/` and names a
+--- wrapper that calls `load`. The bundled entry reads a file next to it through
+--- `resolve_path`, so the page shows whether the internal script stack works in
+--- a real render, and whether a project copy turns the bundled one off.
+do
+  local function quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+  end
+
+  local function read(path)
+    local handle = io.open(path, 'r')
+    if not handle then
+      return ''
+    end
+    local text = handle:read('a')
+    handle:close()
+    return text
+  end
+
+  pandoc.system.with_temporary_directory('lua-modules-embedded-render', function(tmp)
+    local outer = tmp .. '/_extensions/outer'
+    local bundled = outer .. '/_extensions/owner/veil'
+    pandoc.system.make_directory(outer .. '/_vendor/quarto-lua-modules', true)
+    pandoc.system.make_directory(outer .. '/bundled', true)
+    pandoc.system.make_directory(bundled, true)
+    assert(os.execute('cp ' .. quote(here .. 'modules/embedded.lua') .. ' '
+      .. quote(outer .. '/_vendor/quarto-lua-modules/')), 'cannot copy the module into ' .. outer)
+    write(outer .. '/_extension.yml',
+      'title: Outer\nversion: 1.0.0\ncontributes:\n  filters:\n    - bundled/veil.lua\n')
+    write(outer .. '/bundled/veil.lua', table.concat({
+      "local embedded = require(quarto.utils.resolve_path('../_vendor/quarto-lua-modules/embedded.lua'):gsub('%.lua$', ''))",
+      "return embedded.load('veil', quarto.utils.resolve_path('../_extensions/owner/veil/veil.lua'))",
+    }, '\n') .. '\n')
+    write(bundled .. '/_extension.yml', 'title: Veil\nversion: 0.1.0\ncontributes:\n  filters:\n    - veil.lua\n')
+    write(bundled .. '/resource.txt', 'bundled-resource')
+    write(bundled .. '/veil.lua', table.concat({
+      "local function text()",
+      "  local handle = assert(io.open(quarto.utils.resolve_path('resource.txt'), 'r'))",
+      "  local content = handle:read('a')",
+      "  handle:close()",
+      "  return content",
+      "end",
+      "local at_load = text()",
+      "return { Pandoc = function(doc)",
+      "  doc.blocks:insert(pandoc.Para({ pandoc.Str(at_load .. '/' .. text()) }))",
+      "  return doc",
+      "end }",
+    }, '\n') .. '\n')
+    write(tmp .. '/_quarto.yml', 'project:\n  type: default\n')
+    local function page_filters(names)
+      write(tmp .. '/doc.qmd', '---\ntitle: Probe\nformat: html\nfilters:\n  - ' .. table.concat(names, '\n  - ') .. '\n---\n\nText.\n')
+    end
+
+    local function render(command)
+      os.remove(tmp .. '/doc.html')
+      os.execute('cd ' .. quote(tmp) .. ' && ' .. command .. ' render doc.qmd > render.log 2>&1')
+      return read(tmp .. '/doc.html'), read(tmp .. '/render.log')
+    end
+
+    for _, engine in ipairs({ 'quarto', 'q2' }) do
+      local description = engine .. ' runs a bundled filter whose paths resolve against the bundled copy'
+      if os.execute(engine .. ' --version > /dev/null 2>&1') then
+        os.remove(tmp .. '/_extensions/local/veil/_extension.yml')
+        os.remove(tmp .. '/_extensions/local/veil/veil.lua')
+        page_filters({ 'outer' })
+        local page, output = render(engine)
+        if output:find('_quarto.withScriptFile', 1, true) then
+          -- The module needs an internal of quarto-cli. An engine without it
+          -- gets the module's own error, which is what this branch accepts.
+          io.stdout:write('skip ', description, ': ', engine, ' has no `_quarto.withScriptFile`\n')
+          goto next_engine
+        end
+        check(page:find('bundled-resource/bundled-resource', 1, true) ~= nil, description, output:sub(-600))
+
+        pandoc.system.make_directory(tmp .. '/_extensions/local/veil', true)
+        write(tmp .. '/_extensions/local/veil/_extension.yml',
+          'title: Veil\nversion: 9.9.9\ncontributes:\n  filters:\n    - veil.lua\n')
+        write(tmp .. '/_extensions/local/veil/veil.lua',
+          "return { Pandoc = function(doc) doc.blocks:insert(pandoc.Para({ pandoc.Str('project-copy') })) return doc end }\n")
+        page_filters({ 'outer', 'veil' })
+        page, output = render(engine)
+        check(page:find('project-copy', 1, true) ~= nil and page:find('bundled-resource', 1, true) == nil,
+          engine .. ' skips the bundled filter when the project has its own copy', output:sub(-600))
+      else
+        io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
+      end
+      ::next_engine::
+    end
+  end)
 end
 
 finish()
