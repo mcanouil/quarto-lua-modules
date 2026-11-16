@@ -31,6 +31,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       # A push made with the default token triggers no workflow, which leaves
       # the bump pull request without the checks its auto-merge waits for.
@@ -105,3 +107,15 @@ jobs:
             quarto-lua-modules-${{ steps.bump.outputs.version }}.tar.gz.sha256
             modules/*.lua
           token: ${{ steps.token.outputs.token }}
+
+  # The site is published only for a tagged release, built from that tag, so a
+  # pull request or a manual run never deploys it.
+  pages:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: mcanouil/quarto-workflows/.github/workflows/pages.yml@v2
+    with:
+      ref: ${{ needs.release.outputs.version }}
