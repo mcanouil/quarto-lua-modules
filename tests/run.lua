@@ -1848,6 +1848,14 @@ do
     check(not mismatch_ok and tostring(mismatch):find('prism', 1, true) ~= nil
       and tostring(mismatch):find(entry, 1, true) ~= nil,
       'a name that is not the folder of the entry raises an error with both', tostring(mismatch))
+
+    local internal = _G._quarto
+    _G._quarto = nil
+    local missing_ok, missing = pcall(embedded.load, 'veil', entry)
+    _G._quarto = internal
+    check(not missing_ok and tostring(missing):find('_quarto.withScriptFile', 1, true) ~= nil
+      and tostring(missing):find(entry, 1, true) ~= nil,
+      'without the internal Quarto API, `load` names it and the entry', tostring(missing))
   end)
 
   _G.embedded_test_top = nil

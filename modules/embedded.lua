@@ -22,6 +22,11 @@ local M = {}
 -- entry is loaded from the wrapper, so `load` puts the entry on that stack
 -- with `_quarto.withScriptFile`, which is internal to Quarto, for the load and
 -- for every handler call.
+--
+-- Quarto gives a filter no list of the filters that a page names, so the
+-- module skips the bundled filter when the project has a copy at all. A
+-- project that has a copy of a bundled extension but does not name it in
+-- `filters` gets neither copy.
 -- Remove when: never.
 
 local MANIFESTS = { '_extension.yml', '_extension.yaml' }
@@ -113,6 +118,11 @@ function M.load(name, file)
   if folder ~= name then
     error('[embedded] The entry ' .. file .. ' is not in a folder named ' .. name ..
       '. Give the name of the bundled extension that holds the entry.')
+  end
+  if type(_quarto) ~= 'table' or type(_quarto.withScriptFile) ~= 'function' then
+    error('[embedded] Could not load ' .. name .. ' from ' .. file ..
+      ': this Quarto has no internal `_quarto.withScriptFile`, which the module needs.' ..
+      ' Use a Quarto version that has it, or name the bundled filter directly.')
   end
   local copy = find_project_copy(name)
   if copy ~= nil then
