@@ -1877,6 +1877,27 @@ do
     check(not scalar_ok and tostring(scalar):find(scalar_entry, 1, true) ~= nil
       and tostring(scalar):find('boolean', 1, true) ~= nil,
       'an entry that returns something other than a filter raises an error naming it', tostring(scalar))
+
+    manifest(tmp .. '/nested/posts/one/_extensions/local/veil')
+    pandoc.system.make_directory(tmp .. '/nested/_extensions', true)
+    project(tmp .. '/nested')
+    _G.quarto.doc = { input_file = tmp .. '/nested/posts/one/index.qmd' }
+    check(next(embedded.load('veil', entry)) == nil,
+      'in a project, a copy next to an input file in a subfolder is found')
+
+    local list_entry = tmp .. '/bundled/veil/list.lua'
+    write(list_entry, 'return { function() end }')
+    project(tmp .. '/empty')
+    local list_ok, list_err = pcall(embedded.load, 'veil', list_entry)
+    check(not list_ok and tostring(list_err):find(list_entry, 1, true) ~= nil
+      and tostring(list_err):find('1', 1, true) ~= nil,
+      'a list item that is not a filter raises an error naming the entry and the item', tostring(list_err))
+
+    local topdown_entry = tmp .. '/bundled/veil/topdown.lua'
+    write(topdown_entry, 'traverse = "topdown"\nfunction Para(el) return el end\n')
+    local topdown = embedded.load('veil', topdown_entry)[1] or {}
+    equal(topdown.traverse, 'topdown', 'an entry that returns nothing keeps its `traverse` setting')
+    equal(topdown.PANDOC_SCRIPT_FILE, nil, 'the injected script path is not part of the filter')
   end)
 
   _G.embedded_test_top = nil
@@ -1948,8 +1969,15 @@ do
       local description = engine .. ' runs a bundled filter whose paths resolve against the bundled copy'
       if os.execute(engine .. ' --version > /dev/null 2>&1') then
         os.remove(tmp .. '/_extensions/local/veil/_extension.yml')
+        os.remove(tmp .. '/_extensions/local/veil/veil.lua')
         page_filters({ 'outer' })
         local page, output = render(engine)
+        if output:find('_quarto.withScriptFile', 1, true) then
+          -- The module needs an internal of quarto-cli. An engine without it
+          -- gets the module's own error, which is what this branch accepts.
+          io.stdout:write('skip ', description, ': ', engine, ' has no `_quarto.withScriptFile`\n')
+          goto next_engine
+        end
         check(page:find('bundled-resource/bundled-resource', 1, true) ~= nil, description, output:sub(-600))
 
         pandoc.system.make_directory(tmp .. '/_extensions/local/veil', true)
@@ -1964,6 +1992,7 @@ do
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
       end
+      ::next_engine::
     end
   end)
 end

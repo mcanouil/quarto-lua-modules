@@ -45,23 +45,12 @@ local function has_manifest(dir)
   return false
 end
 
---- Find the project's own copy of an extension.
---- Looks for `_extensions/<name>/` and `_extensions/<owner>/<name>/`, with any
---- owner, under the project directory, or next to the input file outside a
---- project. A copy bundled inside another extension is deeper than that, so
---- it never matches.
+--- Find a copy of an extension in one `_extensions/` folder.
+--- Looks for `<name>/` and `<owner>/<name>/`, with any owner.
+--- @param extensions string The `_extensions/` folder
 --- @param name string The extension name, such as `veil`
 --- @return string|nil The directory of the copy, or nil when there is none
-local function find_project_copy(name)
-  local root = quarto.project and quarto.project.directory
-  if root == nil then
-    local input = quarto.doc and quarto.doc.input_file
-    if input == nil then
-      return nil
-    end
-    root = pandoc.path.directory(input)
-  end
-  local extensions = pandoc.path.join({ root, '_extensions' })
+local function find_copy_in(extensions, name)
   local candidates = { pandoc.path.join({ extensions, name }) }
   local listed, owners = pcall(pandoc.system.list_directory, extensions)
   if listed then
@@ -73,6 +62,45 @@ local function find_project_copy(name)
   for _, dir in ipairs(candidates) do
     if has_manifest(dir) then
       return dir
+    end
+  end
+  return nil
+end
+
+--- The folders whose `_extensions/` Quarto reads for the input file.
+--- From the folder of the input file up to the project directory, as Quarto
+--- resolves extensions. Outside a project, only the folder of the input file.
+--- @return table<integer, string>
+local function search_roots()
+  local root = quarto.project and quarto.project.directory
+  local input = quarto.doc and quarto.doc.input_file
+  if input == nil then
+    return { root }
+  end
+  local dir = pandoc.path.normalize(pandoc.path.directory(input))
+  if root == nil then
+    return { dir }
+  end
+  root = pandoc.path.normalize(root)
+  local roots = {}
+  while dir ~= root and dir:sub(1, #root) == root do
+    roots[#roots + 1] = dir
+    dir = pandoc.path.directory(dir)
+  end
+  roots[#roots + 1] = root
+  return roots
+end
+
+--- Find the project's own copy of an extension.
+--- A copy bundled inside another extension is deeper than the folders this
+--- looks in, so it never matches.
+--- @param name string The extension name, such as `veil`
+--- @return string|nil The directory of the copy, or nil when there is none
+local function find_project_copy(name)
+  for _, root in ipairs(search_roots()) do
+    local copy = find_copy_in(pandoc.path.join({ root, '_extensions' }), name)
+    if copy ~= nil then
+      return copy
     end
   end
   return nil
@@ -143,7 +171,7 @@ function M.load(name, file)
     return chunk()
   end)
   if result == nil then
-    result = {}
+    result = { traverse = env.traverse }
     for key, value in pairs(env) do
       if type(value) == 'function' then
         result[key] = value
@@ -159,6 +187,10 @@ function M.load(name, file)
   end
   local filters = {}
   for index, filter in ipairs(result) do
+    if type(filter) ~= 'table' then
+      error('[embedded] ' .. name .. ' at ' .. file .. ' returned a ' .. type(filter) ..
+        ' as filter ' .. index .. '. Each filter in the list must be a table.')
+    end
     filters[index] = wrap_filter(file, filter)
   end
   return filters
