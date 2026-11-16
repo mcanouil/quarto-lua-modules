@@ -10,6 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "modules/**"
+      - "scripts/**"
       - "tests/**"
       - "CITATION.cff"
       - ".github/workflows/test.yml"
@@ -17,6 +18,7 @@ on:
     branches: [main]
     paths:
       - "modules/**"
+      - "scripts/**"
       - "tests/**"
       - "CITATION.cff"
       - ".github/workflows/test.yml"
@@ -67,3 +69,10 @@ jobs:
       # subsumes a parse check, so there is no separate one.
       - name: Run the tests
         run: quarto pandoc lua tests/run.lua
+
+      # The vendoring script is released beside the modules, so it is checked
+      # the same way: its own tests, and shellcheck over the script and the suite.
+      - name: Check the vendoring script
+        run: |
+          tests/vendor.sh
+          shellcheck scripts/vendor.sh tests/vendor.sh

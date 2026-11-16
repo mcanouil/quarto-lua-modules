@@ -1,0 +1,42 @@
+# Sources that `vendor.sh --declare` publishes files from.
+#
+# Three record kinds, one per line, fields separated by whitespace:
+#
+#   source <name> <origin> <fetch> <version> <licence> <licence-url or -> [tag-prefix]
+#   file <source> <name> [runtime]
+#   match <source> <version>
+#
+# `runtime` defaults to `any`, and is `pandoc` for a file that needs a library
+# only Pandoc provides. `-` reads as none, the same way it does for `licence-url`.
+#
+# `tag-prefix` names the kind of release a source reads, for an origin that
+# publishes more than one. A source that omits it asks the origin which release
+# it calls latest.
+#
+# The version is the release `--declare` pins a new manifest to. Bump it when a
+# new release is published: `--check` and `--update` move a manifest on
+# afterwards, and this file only decides which release a new declaration uses.
+#
+# A `match` record names an older release that a copy vendored earlier still
+# matches, and is repeatable per source. It is not needed for the current
+# catalogue, which names no older release.
+#
+# @license MIT
+# @copyright 2026 Mickaël Canouil
+# @author Mickaël Canouil
+
+source quarto-lua-modules https://github.com/mcanouil/quarto-lua-modules {origin}/releases/download/{version}/{file} 2.10.0 MIT -
+file quarto-lua-modules colour.lua
+file quarto-lua-modules content-extraction.lua
+file quarto-lua-modules git.lua
+file quarto-lua-modules html.lua
+file quarto-lua-modules logging.lua
+file quarto-lua-modules lookup.lua
+file quarto-lua-modules metadata.lua
+file quarto-lua-modules pandoc-helpers.lua
+file quarto-lua-modules paths.lua
+file quarto-lua-modules schema-check.lua
+file quarto-lua-modules string.lua
+
+source quarto-wizard https://github.com/mcanouil/quarto-wizard {origin}/releases/download/{version}/{file} 2.3.4 MIT - schema-v
+file quarto-wizard schema.lua

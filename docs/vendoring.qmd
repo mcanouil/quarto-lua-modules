@@ -116,3 +116,26 @@ Fetch it again from the release, or update the manifest if you meant to change t
 7. Commit the manifest and the `_vendor/` folder together.
 
 Keep the version and the checksums in one commit, so that the history shows which release each copy came from.
+
+## Use the script
+
+Each release also ships `vendor.sh`, with the source catalogue it reads, so you can do the steps above with one command.
+The script needs bash 4.4 or newer.
+On macOS, `/bin/bash` is version 3.2, so install a newer bash with Homebrew and run the script with it.
+
+Download the release tarball, and check it against its `.sha256` file.
+Unpack it in an empty directory, outside your repository.
+The script finds its catalogue beside it, so run it from that directory with the path of your repository:
+
+```bash
+VENDOR=/path/to/unpacked/scripts/vendor.sh
+"$VENDOR" --repository . --declare string.lua   # add a file to the manifest, and fetch it
+"$VENDOR" --repository . --sync                 # fetch and verify every declared file
+"$VENDOR" --repository . --check                # report any source behind its latest version
+"$VENDOR" --repository . --update               # move every source to its latest version
+"$VENDOR" --repository . --set quarto-lua-modules=<version>   # pin one source to a version
+"$VENDOR" --repository . --read                 # print every declared record
+```
+
+`--declare` takes the file name from the catalogue beside the script, and records the source that publishes it.
+Each mode does the same thing as the manual steps above, and `--sync` checks each checksum before it writes a file.

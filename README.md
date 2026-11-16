@@ -9,7 +9,7 @@ The modules are not loaded from this repository at render time.
 Full documentation is at <https://m.canouil.dev/quarto-lua-modules/>:
 
 - [Reference](https://m.canouil.dev/quarto-lua-modules/reference.html) for every module and function.
-- [Vendoring](https://m.canouil.dev/quarto-lua-modules/vendoring.html) for how to copy the modules in, declare them in `_dependencies.yml`, and update them.
+- [Vendoring](https://m.canouil.dev/quarto-lua-modules/vendoring.html) for how to copy the modules in, declare them in `_dependencies.yml`, and update them, by hand or with `scripts/vendor.sh` from the release.
 - [Examples](https://m.canouil.dev/quarto-lua-modules/examples.html) for short working snippets.
 
 ## Quick start
