@@ -51,11 +51,6 @@ It needs `string.lua` and `html.lua`.
 
 Loads a filter that an extension bundles, and skips it when the project has its own copy of the same extension.
 
-::: {.callout-note}
-This module is not in a release yet.
-It is in the `Unreleased` section of the [changelog](changelog.qmd), so it appears in the next release.
-:::
-
 | Function | Returns | What it does |
 | --- | --- | --- |
 | `load(name, file)` | table | Loads the bundled filter at `file`, unless the project has its own copy of the extension `name`. Returns the list of filters, which is empty when the bundled one is skipped. |
