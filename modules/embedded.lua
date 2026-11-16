@@ -47,14 +47,19 @@ end
 
 --- Find the project's own copy of an extension.
 --- Looks for `_extensions/<name>/` and `_extensions/<owner>/<name>/`, with any
---- owner, under the project directory. A copy bundled inside another
---- extension is deeper than that, so it never matches.
+--- owner, under the project directory, or next to the input file outside a
+--- project. A copy bundled inside another extension is deeper than that, so
+--- it never matches.
 --- @param name string The extension name, such as `veil`
---- @return string|nil The directory of the copy, or nil when the project has none or there is no project
+--- @return string|nil The directory of the copy, or nil when there is none
 local function find_project_copy(name)
   local root = quarto.project and quarto.project.directory
   if root == nil then
-    return nil
+    local input = quarto.doc and quarto.doc.input_file
+    if input == nil then
+      return nil
+    end
+    root = pandoc.path.directory(input)
   end
   local extensions = pandoc.path.join({ root, '_extensions' })
   local candidates = { pandoc.path.join({ extensions, name }) }
@@ -119,15 +124,15 @@ function M.load(name, file)
     error('[embedded] The entry ' .. file .. ' is not in a folder named ' .. name ..
       '. Give the name of the bundled extension that holds the entry.')
   end
-  if type(_quarto) ~= 'table' or type(_quarto.withScriptFile) ~= 'function' then
-    error('[embedded] Could not load ' .. name .. ' from ' .. file ..
-      ': this Quarto has no internal `_quarto.withScriptFile`, which the module needs.' ..
-      ' Use a Quarto version that has it, or name the bundled filter directly.')
-  end
   local copy = find_project_copy(name)
   if copy ~= nil then
     quarto.log.debug('[embedded] ' .. name .. ' is skipped: the project has its own copy in ' .. copy .. '.')
     return {}
+  end
+  if type(_quarto) ~= 'table' or type(_quarto.withScriptFile) ~= 'function' then
+    error('[embedded] Could not load ' .. name .. ' from ' .. file ..
+      ': this Quarto has no internal `_quarto.withScriptFile`, which the module needs.' ..
+      ' Use a Quarto version that has it, or name the bundled filter directly.')
   end
   local env = setmetatable({ PANDOC_SCRIPT_FILE = file }, { __index = _G })
   local result = with_script(file, function()
@@ -144,6 +149,10 @@ function M.load(name, file)
         result[key] = value
       end
     end
+  end
+  if type(result) ~= 'table' then
+    error('[embedded] ' .. name .. ' at ' .. file .. ' returned a ' .. type(result) ..
+      '. A filter entry must return a filter, a list of filters, or nothing.')
   end
   if result[1] == nil then
     result = { result }
