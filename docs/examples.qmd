@@ -1,0 +1,65 @@
+---
+title: "Examples"
+subtitle: "Short snippets showing each module at work."
+description: "Working snippets for the colour, string, lookup, and path modules, with the output each one gives."
+---
+
+Each snippet loads the module from `_vendor/quarto-lua-modules/`, as described in the [vendoring guide](vendoring.qmd).
+The output shown is the value the function returns, checked by running the code on the `main` branch.
+
+## Escape text for HTML
+
+Escape a user value before you place it in raw HTML.
+
+```lua
+local str = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/string.lua'):gsub('%.lua$', ''))
+local safe = str.escape_html('Hello <World>')
+```
+
+`safe` is `Hello &lt;World&gt;`.
+
+## Trim and split a value
+
+Read a comma-separated option, and clean each entry.
+
+```lua
+local str = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/string.lua'):gsub('%.lua$', ''))
+local parts = str.split('a.b.c', '.')
+local trimmed = str.trim('  hello world  ')
+```
+
+`parts` is `{'a', 'b', 'c'}`, and `trimmed` is `hello world`.
+
+## Convert a colour
+
+Turn a three-digit hex colour into six digits, and an RGB value into hex.
+
+```lua
+local colour = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/colour.lua'):gsub('%.lua$', ''))
+local hex = colour.expand_hex_colour('#123')
+local red = colour.RGB_to_HTML('rgb(255, 0, 0)')
+```
+
+`hex` is `#112233`, and `red` is `#FF0000`.
+
+## Map a keyword to a CSS value
+
+Accept a size keyword from a shortcode argument, and pass a raw CSS value through unchanged.
+
+```lua
+local lookup = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/lookup.lua'):gsub('%.lua$', ''))
+local css = lookup.size_to_css('large')
+```
+
+`css` is `font-size: 1.2em;`.
+
+## Check a path
+
+Test the file type of a document path before you read it.
+
+```lua
+local paths = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/paths.lua'):gsub('%.lua$', ''))
+local is_markdown = paths.is_markdown('doc.qmd')
+```
+
+`is_markdown` is `true`.

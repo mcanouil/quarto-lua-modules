@@ -1,0 +1,118 @@
+---
+title: "Vendoring"
+subtitle: "Copy the modules into your extension, pin them, and update them by hand."
+description: "How to vendor quarto-lua-modules into a Quarto extension, declare them in _dependencies.yml, and update them to a new release."
+toc: true
+---
+
+Quarto has no package manager for Lua.
+An extension therefore keeps its own copy of each module it uses, under `_vendor/quarto-lua-modules/`, and commits that copy.
+Readers of the extension never download anything when they render a document.
+
+This page covers three things: placing the files, recording where they came from, and updating them.
+
+## Place the files
+
+Create `_vendor/quarto-lua-modules/` beside your filter, and copy the modules you use into it.
+Each release attaches its modules as separate files, so you can fetch one module without the rest.
+
+For a release, the files sit at:
+
+```text
+https://github.com/mcanouil/quarto-lua-modules/releases/download/<version>/<file>
+```
+
+Copy the `LICENSE` too, from `quarto-lua-modules-<version>.tar.gz`, and keep it beside the copies.
+
+### Copy the modules a module needs
+
+A module can load another module from its own folder.
+Copy the sibling with it, or the filter fails at render time with `module ... not found`.
+
+| Module | Needs |
+| --- | --- |
+| `content-extraction.lua` | `string.lua`, `html.lua` |
+| `html.lua` | `string.lua` |
+| `metadata.lua` | `string.lua`, `logging.lua` |
+| `paths.lua` | `string.lua` |
+| `pandoc-helpers.lua` | `string.lua` |
+| `schema-check.lua` | `string.lua`, `logging.lua` |
+| `colour.lua`, `embedded.lua`, `git.lua`, `logging.lua`, `lookup.lua`, `string.lua` | nothing |
+
+: Sibling modules each module loads. {.striped .hover tbl-colwidths="[45,55]"}
+
+### Load a module
+
+Load each module with the path Quarto resolves inside a filter:
+
+```lua
+local str = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/string.lua'):gsub('%.lua$', ''))
+```
+
+## Declare the files in `_dependencies.yml`
+
+Write a `_dependencies.yml` beside your `_extension.yml`.
+It records the upstream, the version you took, and the checksum of each file.
+Without it, nothing shows which release a copy came from, or whether it still matches.
+
+```yaml
+schema: 1
+sources:
+  quarto-lua-modules:
+    origin: "https://github.com/mcanouil/quarto-lua-modules"
+    fetch: "{origin}/releases/download/{version}/{file}"
+    version: "2.10.0"
+    licence: MIT
+    files:
+      string.lua:
+        sha256: "7801d2f217e803951313ef86f1f899cb6350a44cbb468b2d7c28dd6911a0fadc"
+        runtime: any
+```
+
+Add one entry under `files` for each module you copy.
+
+### Keys
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `schema` | Yes | The format version. Use `1`. |
+| `sources` | Yes | The upstreams you vendor from, each under a short name. |
+| `origin` | Yes | The upstream's home, such as its repository URL. |
+| `fetch` | Yes | The URL of one file. It contains `{file}`, and may use `{origin}` and `{version}`. |
+| `version` | Yes | The release every file below was taken from. |
+| `licence` | Yes | The licence the upstream ships under, such as `MIT`. |
+| `licence-url` | No | The URL of the licence file. Defaults to `{origin}/raw/{version}/LICENSE`. |
+| `tag-prefix` | No | The text before the version in a release tag. Leave it out when the tag is the bare version, as it is here. |
+| `files` | Yes | The files copied from this source, keyed by file name. A name holds no path. |
+| `sha256` | Yes | The SHA-256 of the file exactly as it is in `_vendor/`. 64 hexadecimal characters. |
+| `runtime` | No | `any`, which is the default, or `pandoc` for a file that needs a library only Pandoc provides. |
+
+: Keys of `_dependencies.yml`. {.striped .hover tbl-colwidths="[18,12,70]"}
+
+The full schema is in the public [dependencies schema](https://github.com/mcanouil/quarto-extension-test/blob/main/_extensions/extension-test/dependencies-schema.yml) of the `quarto-extension-test` repository.
+
+## Verify the copies
+
+Compare the checksum of each file with the value in `_dependencies.yml`.
+
+```bash
+shasum -a 256 _vendor/quarto-lua-modules/*.lua   # macOS
+sha256sum _vendor/quarto-lua-modules/*.lua       # Linux
+```
+
+A mismatch means the file is not the one the manifest names.
+Fetch it again from the release, or update the manifest if you meant to change the version.
+
+## Update to a new release
+
+1. Read the [changelog](changelog.qmd) from your version to the new one.
+   A release can change a function you call, or a file another module now needs.
+2. Download the files of the new release, and the `LICENSE`, from its release page.
+3. Compute each file's checksum, as in [Verify the copies](#verify-the-copies).
+4. Update `version` and each `sha256` in `_dependencies.yml`.
+   Add an entry for any new file you now need, and remove the entry for any file you no longer copy.
+5. Replace the files in `_vendor/quarto-lua-modules/`, and delete the ones you no longer use.
+6. Render your extension's test documents, and check the output.
+7. Commit the manifest and the `_vendor/` folder together.
+
+Keep the version and the checksums in one commit, so that the history shows which release each copy came from.

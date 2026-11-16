@@ -1,0 +1,72 @@
+---
+title: "Lua Modules"
+subtitle: "Shared Lua modules for Quarto extensions: string, metadata, paths, HTML, and schema checks."
+description: "Shared Lua modules for Quarto extensions. Copy the ones you need into your repository, and update them from a release."
+authors:
+  - name: "Mickaël Canouil"
+    url: "https://mickael.canouil.fr"
+page-layout: full
+title-block-style: none
+toc: false
+anchor-sections: false
+---
+
+::: {.atelier-landing}
+
+::: {.atelier-hero .gradient .glow}
+
+::: {.atelier-hero-text}
+
+[Lua library for Quarto extensions]{.atelier-eyebrow}
+
+# Lua Modules
+
+[Shared Lua modules for Quarto extensions: string, metadata, paths, HTML, and schema checks.]{.atelier-lead}
+
+::: {.atelier-actions}
+
+[Get started](#quick-start){.btn .btn-primary .btn-lg}
+[See the examples](examples.qmd){.btn .btn-outline-primary .btn-lg}
+
+:::
+
+:::
+
+::: {.atelier-hero-figure}
+
+[![The Quarto mark, a quartered circle.](assets/icons/icon.svg){width="320" height="312"}]{}
+
+:::
+
+:::
+
+Your filter or shortcode needs the same helpers as every other extension.
+It must escape text for HTML or Typst, read a setting from the metadata, resolve a path, or check a shortcode call against its schema.
+Each extension writes these helpers again, or copies them from another extension.
+These modules are tested once, and you copy the ones you use.
+
+## Installation
+
+Quarto has no package manager for Lua.
+Copy the modules you need into `_vendor/quarto-lua-modules/` in your extension, and commit them.
+The [vendoring guide](vendoring.qmd) covers the copy, the `_dependencies.yml` manifest, and how to update to a new release.
+
+## Quick start
+
+Copy `string.lua` into your extension, then load it from a filter:
+
+```lua
+local str = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/string.lua'):gsub('%.lua$', ''))
+print(str.escape_html('Hello <World>'))
+```
+
+The output is `Hello &lt;World&gt;`.
+
+## Where to go next
+
+- [Reference](reference.qmd) lists every module and function.
+- [Vendoring](vendoring.qmd) explains how to copy, pin, and update the modules.
+- [Examples](examples.qmd) shows short working snippets.
+- [Changelog](changelog.qmd) lists what each release changed.
+
+:::
