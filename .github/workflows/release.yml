@@ -138,3 +138,4 @@ jobs:
     uses: mcanouil/quarto-workflows/.github/workflows/pages.yml@v2
     with:
       ref: ${{ needs.release.outputs.version }}
+      quarto: pre-release
