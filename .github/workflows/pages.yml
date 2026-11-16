@@ -27,4 +27,5 @@ jobs:
       pages: write
       id-token: write
     with:
+      use-main-as-release: ${{ inputs.use-main-as-release || false }}
       quarto: "release"
