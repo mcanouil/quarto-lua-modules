@@ -26,24 +26,14 @@ local M = {}
 
 local MANIFESTS = { '_extension.yml', '_extension.yaml' }
 
---- Tell whether a file exists and can be read.
---- @param path string
---- @return boolean
-local function readable(path)
-  local handle = io.open(path, 'r')
-  if handle == nil then
-    return false
-  end
-  handle:close()
-  return true
-end
-
 --- Tell whether a directory holds an extension manifest.
 --- @param dir string
 --- @return boolean
 local function has_manifest(dir)
   for _, manifest in ipairs(MANIFESTS) do
-    if readable(pandoc.path.join({ dir, manifest })) then
+    local handle = io.open(pandoc.path.join({ dir, manifest }), 'r')
+    if handle ~= nil then
+      handle:close()
       return true
     end
   end
@@ -56,8 +46,7 @@ end
 --- extension is deeper than that, so it never matches.
 --- @param name string The extension name, such as `veil`
 --- @return string|nil The directory of the copy, or nil when the project has none or there is no project
---- @usage local dir = M.find_project_copy('veil')
-function M.find_project_copy(name)
+local function find_project_copy(name)
   local root = quarto.project and quarto.project.directory
   if root == nil then
     return nil
@@ -84,11 +73,11 @@ end
 --- are packed and unpacked to keep a second value such as `false`.
 --- @param file string
 --- @param fn function
+--- @param element any The element that Pandoc gives to a handler
 --- @return any ...
-local function with_script(file, fn, ...)
-  local args = table.pack(...)
+local function with_script(file, fn, element)
   local results = _quarto.withScriptFile(file, function()
-    return table.pack(fn(table.unpack(args, 1, args.n)))
+    return table.pack(fn(element))
   end)
   return table.unpack(results, 1, results.n)
 end
@@ -101,8 +90,8 @@ local function wrap_filter(file, filter)
   local wrapped = {}
   for key, value in pairs(filter) do
     if type(value) == 'function' then
-      wrapped[key] = function(...)
-        return with_script(file, value, ...)
+      wrapped[key] = function(element)
+        return with_script(file, value, element)
       end
     else
       wrapped[key] = value
@@ -116,11 +105,16 @@ end
 --- its path, as Quarto runs a filter. An entry that returns nothing gives the
 --- functions it defines as its filter.
 --- @param name string The extension name to look for in the project, such as `veil`
---- @param file string The absolute path of the bundled entry
---- @return table The filter, the list of filters, or an empty filter when skipped
+--- @param file string The absolute path of the bundled entry, in a folder named `name`
+--- @return table The list of filters, empty when skipped
 --- @usage return M.load('veil', quarto.utils.resolve_path('../_extensions/mcanouil/veil/veil.lua'))
 function M.load(name, file)
-  local copy = M.find_project_copy(name)
+  local folder = pandoc.path.filename(pandoc.path.directory(file))
+  if folder ~= name then
+    error('[embedded] The entry ' .. file .. ' is not in a folder named ' .. name ..
+      '. Give the name of the bundled extension that holds the entry.')
+  end
+  local copy = find_project_copy(name)
   if copy ~= nil then
     quarto.log.debug('[embedded] ' .. name .. ' is skipped: the project has its own copy in ' .. copy .. '.')
     return {}
@@ -142,7 +136,7 @@ function M.load(name, file)
     end
   end
   if result[1] == nil then
-    return wrap_filter(file, result)
+    result = { result }
   end
   local filters = {}
   for index, filter in ipairs(result) do
