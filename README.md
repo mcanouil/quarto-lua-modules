@@ -10,6 +10,7 @@ They are meant to be vendored. Quarto ships no package manager for Lua, so an ex
 | --- | --- |
 | `colour.lua` | Converts between CSS colour notations and HTML hex. |
 | `content-extraction.lua` | Pulls sections, divs, and code metadata out of a document. |
+| `embedded.lua` | Loads a filter that an extension bundles, or skips it when the project has its own copy. |
 | `git.lua` | Reads the current Git repository. |
 | `html.lua` | Builds raw HTML and registers HTML dependencies. |
 | `logging.lua` | Writes messages prefixed with the extension name. |

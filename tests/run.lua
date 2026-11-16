@@ -86,6 +86,7 @@ local EXPECTED = {
   ['content-extraction'] = { 'extract_section', 'remove_sections', 'extract_div', 'find_block', 'protect_headers',
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
+  embedded = { 'find_project_copy', 'load' },
   html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
@@ -1734,6 +1735,124 @@ do
 
   html.reset_dependencies()
   _G.quarto = previous_quarto
+end
+
+io.stdout:write('# embedded\n')
+
+do
+  -- Quarto keeps a stack of running scripts, and `resolve_path` answers
+  -- relative to its top. The stub keeps the same stack and, like Quarto's
+  -- `withScriptFile`, returns only the first value of the callback, so the
+  -- checks see what a bundled filter sees inside a real render.
+  local embedded = modules['embedded']
+  local previous_quarto, previous_internal = _G.quarto, _G._quarto
+  local stack, debug_messages = {}, {}
+
+  _G._quarto = {
+    withScriptFile = function(file, callback)
+      table.insert(stack, file)
+      local result = callback()
+      table.remove(stack, #stack)
+      return result
+    end,
+  }
+  _G.embedded_test_top = function() return stack[#stack] end
+
+  local function project(root)
+    _G.quarto = {
+      project = { directory = root },
+      log = { debug = function(message) debug_messages[#debug_messages + 1] = message end },
+    }
+  end
+
+  local function manifest(dir, name)
+    pandoc.system.make_directory(dir, true)
+    write(dir .. '/' .. (name or '_extension.yml'), 'title: Copy\n')
+  end
+
+  pandoc.system.with_temporary_directory('lua-modules-embedded', function(tmp)
+    project(tmp .. '/empty')
+    pandoc.system.make_directory(tmp .. '/empty', true)
+    equal(embedded.find_project_copy('veil'), nil, 'a project without `_extensions` has no copy')
+
+    manifest(tmp .. '/owned/_extensions/local/veil')
+    project(tmp .. '/owned')
+    equal(embedded.find_project_copy('veil'), tmp .. '/owned/_extensions/local/veil',
+      'a copy under `_extensions/<owner>/<name>` is found')
+
+    manifest(tmp .. '/bare/_extensions/veil')
+    project(tmp .. '/bare')
+    equal(embedded.find_project_copy('veil'), tmp .. '/bare/_extensions/veil',
+      'a copy under `_extensions/<name>` is found')
+
+    manifest(tmp .. '/yaml/_extensions/local/veil', '_extension.yaml')
+    project(tmp .. '/yaml')
+    equal(embedded.find_project_copy('veil'), tmp .. '/yaml/_extensions/local/veil',
+      'a copy with `_extension.yaml` is found')
+
+    manifest(tmp .. '/other/_extensions/local/other')
+    project(tmp .. '/other')
+    equal(embedded.find_project_copy('veil'), nil, 'a copy of another extension does not count')
+
+    project(nil)
+    equal(embedded.find_project_copy('veil'), nil, 'a render outside a project has no copy')
+
+    local entry = tmp .. '/bundled/veil/veil.lua'
+    pandoc.system.make_directory(tmp .. '/bundled/veil', true)
+    write(entry, table.concat({
+      'loaded_from = PANDOC_SCRIPT_FILE',
+      'return { {',
+      '  traverse = "topdown",',
+      '  Str = function(el) seen_top = embedded_test_top() return el, false end,',
+      '} }',
+    }, '\n'))
+
+    project(tmp .. '/owned')
+    debug_messages = {}
+    local skipped = embedded.load('veil', entry)
+    check(type(skipped) == 'table' and next(skipped) == nil,
+      'with a project copy, `load` returns an empty filter')
+    check(#debug_messages == 1 and debug_messages[1]:find('veil', 1, true) ~= nil
+      and debug_messages[1]:find(tmp .. '/owned/_extensions/local/veil', 1, true) ~= nil,
+      'the skip is logged once at debug level with the name and the copy', debug_messages[1])
+
+    project(tmp .. '/empty')
+    local filters = embedded.load('veil', entry)
+    check(type(filters) == 'table' and #filters == 1, 'without a project copy, the list of filters is kept')
+    local filter = filters[1] or {}
+    equal(filter.traverse, 'topdown', 'a field that is not a function is kept as it is')
+    local first, second = filter.Str(pandoc.Str('x'))
+    check(first ~= nil and first.text == 'x' and second == false,
+      'a handler keeps every value it returns', tostring(second))
+
+    local env_entry = tmp .. '/bundled/veil/env.lua'
+    write(env_entry, 'return { Para = function() return embedded_test_top() end }')
+    local single = embedded.load('veil', env_entry)
+    check(type(single.Para) == 'function' and single[1] == nil,
+      'a single filter table is returned as a single filter')
+    equal(single.Para(pandoc.Para({})), env_entry,
+      'a handler runs with the bundled entry on top of the script stack')
+
+    local global_entry = tmp .. '/bundled/veil/global.lua'
+    write(global_entry, 'function Para(el) return el end\nfile_seen = PANDOC_SCRIPT_FILE\n')
+    local collected = embedded.load('veil', global_entry)
+    check(type(collected.Para) == 'function',
+      'an entry that returns nothing gives the functions it defines as its filter')
+    check(collected.file_seen == nil, 'only functions are collected from such an entry')
+
+    local probe_entry = tmp .. '/bundled/veil/probe.lua'
+    write(probe_entry, table.concat({
+      'local at_load = embedded_test_top()',
+      'return { Meta = function() return PANDOC_SCRIPT_FILE end, Div = function() return at_load end }',
+    }, '\n'))
+    local probe = embedded.load('veil', probe_entry)
+    equal(probe.Meta(nil), probe_entry, 'the entry sees its own path as `PANDOC_SCRIPT_FILE`')
+    equal(probe.Div(nil), probe_entry, 'the entry loads with itself on top of the script stack')
+    equal(rawget(_G, 'loaded_from'), nil, 'the entry does not write to the global environment')
+  end)
+
+  _G.embedded_test_top = nil
+  _G.quarto, _G._quarto = previous_quarto, previous_internal
 end
 
 finish()

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: Add `embedded.lua`, which loads a filter that an extension bundles and skips it when the project has its own copy of the same extension.
+
 ## 2.10.0 (2026-11-11)
 
 - feat: `ensure_html_dependency` now reads the extension version from `_extension.yml` when you leave out `version`, so the dependency folder changes with each release. The new `get_extension_version` returns that version, and raises an error when the manifest has none, so a filter outside `_extensions` must pass `version`.
