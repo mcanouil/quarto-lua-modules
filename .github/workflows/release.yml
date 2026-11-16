@@ -108,8 +108,9 @@ jobs:
             modules/*.lua
           token: ${{ steps.token.outputs.token }}
 
-  # The site is published only for a tagged release, built from that tag, so a
-  # pull request or a manual run never deploys it.
+  # The standard deployment of the site: it is built from the tag this release
+  # creates. A pull request never deploys it, and a manual run of the Pages
+  # workflow deploys only when someone starts it by hand.
   pages:
     needs: release
     permissions:
