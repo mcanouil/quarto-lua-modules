@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.11.0 (2026-11-16)
+
 - feat: Add `embedded.lua`, which loads a filter that an extension bundles and skips it when the project has its own copy of the same extension. (#27)
 - feat: Ship `vendor.sh` and its source catalogue with each release, so an extension can declare, fetch, check and update the modules with one command. (#29)
 
