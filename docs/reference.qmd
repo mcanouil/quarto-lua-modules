@@ -1,0 +1,216 @@
+---
+title: "Reference"
+subtitle: "Every module, and every function it exports."
+description: "Reference for each Lua module of quarto-lua-modules: its functions, what they return, and what they do."
+---
+
+Each section below names one module.
+Load a module with the path in [Vendoring](vendoring.qmd), and call its functions through the table it returns.
+
+A module that loads a sibling needs that sibling copied too.
+The table at the top of [Vendoring](vendoring.qmd#copy-the-modules-a-module-needs) lists them.
+
+## colour.lua
+
+Converts CSS colours to HTML hex, and reads the colour an attribute sets.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `is_named_colour(value)` | `boolean` | Tells whether the value is one of the 148 CSS named colours. The match ignores case. |
+| `expand_hex_colour(hex)` | `string` | Expands a three-digit hex colour to six digits, so `#123` becomes `#112233`. |
+| `RGB_to_HTML(rgb)` | `string` | Converts `rgb(r, g, b)` to an uppercase hex colour. |
+| `RGBPercent_to_HTML(rgb)` | `string` | Converts `rgb(r%, g%, b%)` to an uppercase hex colour. |
+| `HSL_to_HTML(hsl)` | `string` | Converts `hsl(h, s%, l%)` to an uppercase hex colour. |
+| `HWB_to_HTML(hwb)` | `string` | Converts `hwb(h w% b%)` to an uppercase hex colour. |
+| `named_to_HTML(name)` | `string` | Converts a CSS named colour to an uppercase hex colour. The match ignores case. |
+| `to_html(code, format)` | `string` | Converts a colour by its format name: `hwb`, `hsl`, `rgb`, `rgb_percent`, `hex`, or `named`. |
+| `get_colour(attrs, default)` | `string` or `nil` | Reads `colour` from the attributes, then `color`, and returns `default` when neither is set. |
+| `is_custom_colour(colour)` | `boolean` | Tells whether the value is a custom colour rather than a named one. Use it to choose between a class and an inline style. |
+| `hue_to_rgb(p, q, t)` | `number` | A helper for `HSL_to_HTML`, which returns one RGB component. |
+
+: Functions of `colour.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
+
+## content-extraction.lua
+
+Finds sections, divs, and headers in a list of Pandoc blocks.
+It needs `string.lua` and `html.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `extract_section(blocks, section_id, include_header)` | blocks or `nil` | Returns the blocks of the section with that header identifier, up to the next header of the same or a higher level. The header is included unless `include_header` is `false`. |
+| `remove_sections(blocks, predicate)` | kept, removed | Removes each section whose header matches `predicate`. Returns the kept blocks and the removed blocks, in document order. The input is not changed. |
+| `extract_div(blocks, div_id, include_div)` | blocks or `nil` | Searches inside the blocks for a Div with that identifier, and returns its contents. The Div itself is included when `include_div` is `true`. |
+| `find_block(blocks, predicate)` | integer or `nil` | Returns the index of the first block for which `predicate` is true. |
+| `protect_headers(blocks, id_prefix, format)` | blocks | Replaces each header with a raw HTML block, so its identifier cannot clash with another. The optional prefix is added to each identifier. |
+| `parse_sections(blocks)` | table | Splits content at a horizontal rule into `header_text`, `header_level`, `body_blocks`, and `footer_blocks`. Useful for modal dialogs. |
+| `extract_code_metadata(code_text, pattern)` | filename or `nil`, text | Reads a line such as `python \| filename: script.py`, and returns the filename and the code without that line. |
+
+: Functions of `content-extraction.lua`. {.striped .hover tbl-colwidths="[32,18,50]"}
+
+## embedded.lua
+
+Loads a filter that an extension bundles, and skips it when the project has its own copy of the same extension.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `load(name, file)` | table | Loads the bundled filter at `file`, unless the project has its own copy of the extension `name`. Returns the list of filters, which is empty when the bundled one is skipped. |
+
+: Functions of `embedded.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
+
+## git.lua
+
+Reads the Git repository the document is in.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `get_repository()` | `string` or `nil` | Returns `owner/repo`, read from the `origin` remote, or `nil` when there is none. |
+
+: Functions of `git.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
+
+## html.lua
+
+Builds raw HTML, and adds an HTML dependency to the page once.
+It needs `string.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `raw_header(level, text, id, classes, attributes)` | `string` | Returns a raw HTML header element, with its identifier, classes, and any extra attributes. |
+| `get_extension_version()` | `string` | Returns the `version` of the running extension, read from its `_extension.yml`. Raises an error when that file has no version. |
+| `ensure_html_dependency(config)` | `boolean` | Adds an HTML dependency once per document, and returns `true` only when it was added. Without `version` in `config`, the running extension's version is used. |
+| `reset_dependencies()` | nothing | Forgets the dependencies added so far. Use it when one process renders several documents. |
+
+: Functions of `html.lua`. {.striped .hover tbl-colwidths="[38,15,47]"}
+
+## logging.lua
+
+Writes messages in one format, prefixed with the extension name: `[extension-name] Message`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `log_error(extension_name, message)` | nothing | Writes an error message. |
+| `log_warning(extension_name, message)` | nothing | Writes a warning message. |
+| `log_output(extension_name, message)` | nothing | Writes an informational message. |
+| `log_debug(extension_name, message)` | nothing | Writes a debug message. |
+
+: Functions of `logging.lua`. {.striped .hover tbl-colwidths="[38,15,47]"}
+
+## lookup.lua
+
+Checks membership in a list, and maps keywords to values.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `is_valid_value(value, valid_array, formatter)` | `string` or `nil` | Returns the value, formatted when `formatter` is given, if it is in `valid_array`. Returns `nil` when it is not. A `formatter` string is a prefix, and a function receives the value. |
+| `in_array(value, valid_array)` | `boolean` | Tells whether the value is in the array. |
+| `keyword_to_value(keyword, mapping, default)` | `string` | Returns the mapped value of the keyword. Falls back to `default`, and then to the keyword itself. |
+| `size_to_css(size)` | `string` | Converts a size keyword such as `large` to `font-size: 1.2em;`. A value that already has a unit is passed through. Returns an empty string for an empty input. |
+
+: Functions of `lookup.lua`. {.striped .hover tbl-colwidths="[38,15,47]"}
+
+## metadata.lua
+
+Reads the configuration of an extension from the document metadata, and the project metadata from Quarto.
+It needs `string.lua` and `logging.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `get_extension_config(meta, extension_name)` | any or `nil` | Returns the table under `extensions.<extension_name>`. |
+| `get_metadata_value(meta, extension_name, key)` | `string` or `nil` | Returns `extensions.<extension_name>.<key>` as a string. A boolean `false` is a value, and is returned as `"false"`. |
+| `check_deprecated_config(meta, extension_name, key, deprecation_warning_shown)` | value or `nil`, `boolean` | Reads a top-level key that an extension has deprecated, and warns once. Returns the value and the updated warning flag. |
+| `get_option_with_fallbacks(spec)` | any | Returns one option, taking the first of the named arguments, the document metadata, and the default. |
+| `get_options(spec)` | table | Returns several options at once, by the same rule as `get_option_with_fallbacks`. |
+| `get_project_metadata()` | table or `nil`, reason, path | Reads the `format.metadata` table that Quarto writes to `QUARTO_EXECUTE_INFO`. When that fails, the reason is one of `file is unreadable`, `file is empty`, `invalid JSON`, or `no format.metadata table`. |
+| `get_project_repo_url(format_meta)` | `string` or `nil` | Returns `repo-url` from the website or book metadata, website first. |
+
+: Functions of `metadata.lua`. {.striped .hover tbl-colwidths="[38,20,42]"}
+
+## pandoc-helpers.lua
+
+Builds Pandoc elements, and checks the Lua values Pandoc hands to a filter.
+It needs `string.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `create_link(text, uri)` | `pandoc.Link` or `nil` | Returns a link, or `nil` when the text or the URI is empty. |
+| `attr(id, classes, attributes)` | `pandoc.Attr` | Returns the Pandoc attributes built from an identifier, classes, and key-value pairs. |
+| `has_class(classes, name)` | `boolean` | Tells whether the class list holds `name`. |
+| `add_class(classes, name)` | nothing | Adds `name` to the class list, when it is not already there. |
+| `get_quarto_format()` | `string`, `string` | Returns the output format, such as `html`, `typst`, or `pptx`, or `unknown`, and its language. |
+| `is_object_empty(obj)` | `boolean` | Tells whether the value is `nil`, an empty string, or an empty table. |
+| `is_type_simple(obj)` | `boolean` | Tells whether the value is a string, a number, or a boolean. |
+| `is_function_userdata(obj)` | `boolean` | Tells whether the value is a function or userdata. |
+| `get_value(fields, obj)` | any | Reads a nested value, following the field names in order. |
+| `attributes_to_table(element)` | table | Converts the attributes of a Div, Span, Table, or Image to a plain table. |
+
+: Functions of `pandoc-helpers.lua`. {.striped .hover tbl-colwidths="[38,20,42]"}
+
+## paths.lua
+
+Resolves paths against the project, and checks file types.
+It needs `string.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `resolve_project_path(path)` | `string` | Resolves a path relative to the project directory. A leading `/` marks the path as project-relative. Without a project, the leading `/` is removed. |
+| `has_extension(uri, extensions, case_sensitive)` | `boolean` | Tells whether the URI ends with one of the extensions. The match ignores case unless `case_sensitive` is `true`, and the leading dot is optional. |
+| `is_markdown(uri)` | `boolean` | Tells whether the URI ends with `.md`, `.markdown`, or `.qmd`. |
+
+: Functions of `paths.lua`. {.striped .hover tbl-colwidths="[38,15,47]"}
+
+## schema-check.lua
+
+Checks a document, a shortcode call, a code cell, and an output format against the extension's `_schema.yml`.
+It needs `logging.lua` and `string.lua`.
+
+The validator is passed to the module as an argument, not loaded by it.
+An extension can then vendor the schema validator from one source and this module from another.
+The validator must provide `load_schema`, `validate`, `validate_shortcode`, `extract_meta_options`, `validate_attributes`, `validate_format`, and `validate_cells`.
+The last one needs Quarto Wizard schema 2.3.0 or newer.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `new(validator, extension_name, schema_path)` | checker | Reads the schema once, and returns a checker. The schema is `_schema.yml` beside the entry point. Pass `schema_path` when the entry point is in a subdirectory, such as `'../_schema.yml'`. |
+| `checker:options(meta)` | defaults, resolved | Checks the document options. Returns a copy of the schema defaults first. Second, returns `resolved`: `provided` holds what the document set, `merged` holds those values with coercion and defaults applied, and `defaults` holds the schema defaults. `resolved` is `nil` when there is no schema. Only the first call reads `meta`. |
+| `checker:option(key)` | value | Returns what the schema resolves one option to, after `options` has run. |
+| `checker:attributes(attributes, group)` | table | Checks the attributes of one element against the `attributes` section, and returns the resolved values. The element's own group and `_any` both apply. |
+| `checker:cells(options, language)` | table | Checks the comment-pipe options of a code cell, such as `#\|`, against the `cells` section. The cell language picks the group. |
+| `checker:format(name)` | table | Checks one output format against the `formats` section, after `options` has run. |
+| `checker:call(name, args, kwargs)` | nothing | Checks one shortcode call against the shortcode's entry in the schema, and reports what it finds. The rendered output does not change. |
+
+: Functions of `schema-check.lua`. {.striped .hover tbl-colwidths="[38,20,42]"}
+
+Build the checker at file scope, and not inside a shortcode handler.
+The schema is then read once for the render, and not once for each call.
+
+```lua
+local check = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/schema-check.lua'):gsub('%.lua$', ''))
+local checker = check.new(validator, 'iconify')
+local defaults, resolved = checker:options(meta)
+```
+
+## string.lua
+
+Tests, splits, trims, and escapes strings.
+It has no dependencies.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `is_empty(s)` | `boolean` | Tells whether the value is `nil` or an empty string. |
+| `escape_pattern(s)` | `string` | Escapes the characters that have a meaning in a Lua pattern. |
+| `split(str, sep)` | table | Splits the string at each match of `sep`. |
+| `trim(str)` | `string` | Removes leading and trailing whitespace. |
+| `to_string(val)` | `string` or `nil` | Converts any value to a string, including Pandoc objects. Returns `nil` for an empty value. |
+| `strip_surrounding(text)` | prefix, inner, suffix | Removes one balanced pair of brackets or quotes, or trailing punctuation, from the ends of the text. |
+| `strip_edges(text)` | prefix, inner, suffix | Removes any run of opening brackets from the start, and any run of closing brackets or punctuation from the end. |
+| `find_bracketed_content(text, start_pos)` | prefix, content, suffix, position | Finds the first balanced bracket pair after `start_pos`, and splits the text around it. |
+| `escape_latex(text)` | `string` | Escapes the characters that LaTeX treats as special. |
+| `escape_typst(text)` | `string` | Escapes the characters that Typst treats as special. |
+| `escape_typst_string(text)` | `string` | Escapes text for a Typst string literal, inside double quotes. |
+| `escape_js_string(text)` | `string` | Escapes text for a JavaScript string literal. It also escapes `</`, so the text cannot close an inline script. |
+| `escape_lua_pattern(text)` | `string` | Escapes text for use in `string.gsub`. |
+| `escape_html(text)` | `string` | Escapes `&`, `<`, `>`, `"`, and `'`. |
+| `escape_attribute(value)` | `string` | Escapes the characters that would end an HTML attribute value. |
+| `escape_text(text, format)` | `string` | Escapes text for `latex`, `typst`, or `lua`. Any other format name raises an error. |
+| `ascii_id(text)` | `string` | Makes an HTML identifier from text, by lowercasing it and replacing the spaces. |
+
+: Functions of `string.lua`. {.striped .hover tbl-colwidths="[34,20,46]"}

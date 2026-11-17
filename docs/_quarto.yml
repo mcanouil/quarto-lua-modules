@@ -1,0 +1,147 @@
+project:
+  type: atelier
+  # Generates changelog.qmd from CHANGELOG.md and, in an extension repository,
+  # _variables.yml from the extension manifest, and removes both afterwards.
+  # The leading ./ is required; a bare name fails to spawn. The scripts live in
+  # _scripts/, whose leading underscore keeps Quarto from treating it as
+  # content.
+  pre-render: ./_scripts/pre-render.sh
+  post-render: ./_scripts/post-render.sh
+  # Quarto copies nothing to the output directory by convention: only these
+  # globs, plus files it finds behind an `href` or `src` in the rendered HTML.
+  # The manifest names its icons in JSON, which is not scanned, so they are
+  # listed here. The social card is not: Quarto registers a project-relative
+  # the `open-graph` image as a resource itself.
+  resources:
+    - favicon.ico
+    - site.webmanifest
+    - assets/icons/*.png
+
+website:
+  title: "Lua Modules"
+  description: "Shared Lua modules for Quarto extensions: string, metadata, paths, HTML, and schema checks."
+  # No trailing slash: Quarto builds the social image URL by concatenating this
+  # with a leading-slash image path, without normalising.
+  # quarto-dev/quarto-cli#15053 normalises this join. Drop this note once the
+  # minimum Quarto version is the first release after 1.11.6.
+  site-url: &site-url https://m.canouil.dev/quarto-lua-modules
+  repo-url: https://github.com/mcanouil/quarto-lua-modules
+  # The Quarto project root is `docs/`, so without this every edit and issue
+  # link points at a path one level up from the page it was built for.
+  repo-subdir: docs
+  favicon: favicon.ico
+  # The card is declared inside `open-graph` and `twitter-card`, not as
+  # `website.image`. Quarto harvests the first image on the page when nothing
+  # inside these blocks names one, and that harvest beats `website.image`: a
+  # page whose first inline image is a data URI then serves that data URI as
+  # `og:image`. Declaring it here is what wins.
+  # The path is project-relative, which Quarto turns into
+  # `<site-url>/assets/social/og-image.png` and measures to fill the image width
+  # and height tags. An absolute URL would emit neither: Quarto returns no size
+  # for one, then writes that over whatever the configuration set.
+  # _scripts/pre-render.sh writes the file, from GitHub's own preview for this
+  # repository; see assets/social/README.md.
+  open-graph:
+    image: assets/social/og-image.png
+    image-alt: "GitHub's repository card for mcanouil/quarto-lua-modules: the repository name and its one-line description beside the owner's avatar, over the contributor, issue, star, and fork counts."
+  twitter-card:
+    image: assets/social/og-image.png
+    image-alt: "GitHub's repository card for mcanouil/quarto-lua-modules: the repository name and its one-line description beside the owner's avatar, over the contributor, issue, star, and fork counts."
+  page-navigation: true
+  # atelier defaults search to an overlay button in the navbar. With no navbar
+  # the search belongs in the sidebar, as a field rather than a button.
+  search:
+    location: sidebar
+    type: textbox
+  # Book-like layout: a docked sidebar carries the navigation and the search,
+  # and there is no navbar. The gitlink widget replaces the sidebar tool
+  # pointing at #gitlink-widget, and atelier themes the docked sidebar from the
+  # same tokens as the navbar it replaces.
+  navbar: false
+  sidebar:
+    # `background` and `foreground` are left out: atelier repaints a docked
+    # sidebar from the chrome palette, so neither has any effect on it.
+    style: docked
+    search: true
+    pinned: true
+    align: center
+    collapse-level: 2
+    tools:
+      - href: "#gitlink-widget"
+        text: "GitHub"
+        icon: github
+    # Plain labels, no icons: Quarto expands no shortcode in a sidebar item's
+    # text, and the raw web component leaks out of the sidebar into the
+    # breadcrumbs, which reuse the same string.
+    contents:
+      - href: index.qmd
+        text: "Home"
+      - href: reference.qmd
+        text: "Reference"
+      - href: examples.qmd
+        text: "Examples"
+      - href: vendoring.qmd
+        text: "Vendoring"
+      - text: "---"
+      - href: changelog.qmd
+        text: "Changelog"
+  page-footer:
+    left: |
+      Powered by [{{< iconify simple-icons:quarto aria-hidden='true' >}} Quarto](https://quarto.org).
+    center: |
+      &copy; []{#current-year} [Mickaël Canouil](https://mickael.canouil.fr). [{{< iconify octicon:heart-fill-16 aria-hidden='true' >}} Sponsor](https://github.com/sponsors/mcanouil?o=esb).
+    right: |
+      Licence: [MIT](https://github.com/mcanouil/quarto-lua-modules?tab=MIT-1-ov-file#readme).
+
+extensions:
+  # Quarto keeps the `website` block out of the metadata it hands to Lua
+  # filters, so the social-metadata filter cannot read `website.site-url` to
+  # build `og:url` and the canonical link. The anchor above republishes the same
+  # scalar here, without a second copy of the string.
+  atelier:
+    site-url: *site-url
+    # `website.favicon` covers `rel="icon"` alone. These three have no
+    # configuration key of their own, so the social-metadata filter emits them.
+    # Each path is written relative to the site root; the filter leaves it
+    # exactly as it stands, because Quarto's resource resolver already prefixes
+    # every `link[href]` with the page's own offset.
+    icon: assets/icons/icon.svg
+    apple-touch-icon: assets/icons/apple-touch-icon.png
+    manifest: site.webmanifest
+    # No `theme-color`: the filter falls back to the brand background of each
+    # mode, which is the colour the page is actually painted with.
+  gitlink:
+    # Widget only: the platform and repository come from `website.repo-url`, and
+    # in-text reference rewriting stays off so prose is left alone.
+    enabled: false
+    widget:
+      enabled: true
+      extra-links:
+        - text: "Ideas"
+          href: "/discussions/categories/ideas"
+          icon: discussion
+        - text: "Q&A"
+          href: "/discussions/categories/q-a"
+          icon: question
+      sponsor: "mcanouil"
+      # There is no navbar; the widget sits in the docked sidebar instead, so
+      # there are no navbar tools to restyle.
+      style-navbar-tools: false
+  code-window:
+    style: "macos"
+    # Blocks here are configuration to copy rather than files to save, so a
+    # filename derived from the language would only add noise.
+    auto-filename: false
+format:
+  # Configure the extension format by name. Declaring `html` would replace
+  # `atelier-html` rather than configure it, silently dropping the theme, the
+  # bundled scripts, and the social-metadata filter.
+  atelier-html:
+    # assets/theme.scss stays last, so it wins the cascade over the brand.
+    theme:
+      light:
+        - brand
+        - assets/theme.scss
+      dark:
+        - brand
+        - assets/theme.scss

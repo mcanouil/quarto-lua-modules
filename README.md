@@ -1,73 +1,27 @@
 # Quarto Lua Modules
 
-Shared Lua modules for Quarto extensions: colour conversion, string escaping, metadata access, path resolution, and the other utilities that every extension ends up needing.
+Shared Lua modules for Quarto extensions: colour conversion, string escaping, metadata access, path resolution, and schema checks.
 
-They are meant to be vendored. Quarto ships no package manager for Lua, so an extension copies the modules it uses into its own `_extensions/<name>/_modules/` directory and commits them, rather than depending on this repository at render time.
+Quarto has no package manager for Lua.
+An extension therefore copies the modules it uses into its own repository, and commits them.
+The modules are not loaded from this repository at render time.
 
-## Modules
+Full documentation is at <https://m.canouil.dev/quarto-lua-modules/>:
 
-| Module | What it does |
-| --- | --- |
-| `colour.lua` | Converts between CSS colour notations and HTML hex. |
-| `content-extraction.lua` | Pulls sections, divs, and code metadata out of a document. |
-| `embedded.lua` | Loads a filter that an extension bundles, or skips it when the project has its own copy, named in `filters` or not. |
-| `git.lua` | Reads the current Git repository. |
-| `html.lua` | Builds raw HTML and registers HTML dependencies. |
-| `logging.lua` | Writes messages prefixed with the extension name. |
-| `lookup.lua` | Membership tests and keyword mapping. |
-| `metadata.lua` | Reads extension configuration out of document metadata, and project metadata out of `QUARTO_EXECUTE_INFO`. |
-| `pandoc-helpers.lua` | Builds Pandoc elements and detects the output format. |
-| `paths.lua` | Resolves a path relative to the project and checks a URI's file type. |
-| `schema-check.lua` | Checks a document and a shortcode call against the extension's `_schema.yml`. |
-| `string.lua` | Splits, trims, and escapes for HTML, LaTeX, Typst, JavaScript, and Lua. |
+- [Reference](https://m.canouil.dev/quarto-lua-modules/reference.html) for every module and function.
+- [Vendoring](https://m.canouil.dev/quarto-lua-modules/vendoring.html) for how to copy the modules in, declare them in `_dependencies.yml`, and update them, by hand or with `scripts/vendor.sh` from the release.
+- [Examples](https://m.canouil.dev/quarto-lua-modules/examples.html) for short working snippets.
 
-## Usage
+## Quick start
 
-Copy the modules you need into your extension, then load them the way Quarto resolves paths inside a filter:
+Copy `string.lua` into `_vendor/quarto-lua-modules/` in your extension, then load it from a filter:
 
 ```lua
-local str = require(quarto.utils.resolve_path('_modules/string.lua'):gsub('%.lua$', ''))
+local str = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/string.lua'):gsub('%.lua$', ''))
+print(str.escape_html('Hello <World>'))
 ```
 
-A module that needs another one finds it in the same directory, so copy them together.
-
-`schema-check.lua` takes its validator as an argument rather than loading one, so an extension can vendor the two from different sources:
-
-```lua
-local checker = check.new(validator, 'iconify')
-local defaults, resolved = checker:options(meta)
-local inline = checker:option('inline')
-local attributes = checker:attributes(el.attributes, 'CodeBlock')
-local format = checker:format('letter-pdf')
-local cell = checker:cells(cell_options, 'typst')
-checker:call('iconify', args, kwargs)
-```
-
-`options` returns the schema defaults first.
-It returns `provided`, `merged` and `defaults` second, for an extension that has to tell a value the document wrote from a key it never set.
-
-`option` returns what the schema resolves one option to, after `options` has run.
-Read it rather than the document, so that the schema decides what counts as true and a key the document never set gives its declared default.
-
-`attributes` checks one element against the `attributes` section and returns what its attributes resolve to.
-Both the element's own group and `_any` apply, the named group last.
-
-`cells` checks the comment-pipe options of one code cell (`#|`, `//|`) against the `cells` section and returns what they resolve to.
-The cell language picks the group, so a `{.typst}` block that only displays code is not checked as a `typst` cell.
-It needs Quarto Wizard schema 2.3.0 or newer, whose validator provides `validate_cells`.
-
-`format` checks one output format against the `formats` section, after `options` has run.
-Quarto merges the options of the selected format into the top level of the metadata, so the extension names its own format, as it names an attribute group.
-
-`new` reads `_schema.yml` beside the entry point that runs.
-An extension whose entry points live in a subdirectory gives the path as a third argument:
-
-```lua
-local checker = check.new(validator, 'iconify', '../_schema.yml')
-```
-
-Build the checker at file scope, and not inside a shortcode handler.
-The schema is then read once for the render, and not once for each call.
+The output is `Hello &lt;World&gt;`.
 
 ## Development
 
@@ -76,8 +30,6 @@ The modules run inside Quarto's Lua, and several of them call `pandoc.*`, so the
 ```bash
 quarto pandoc lua tests/run.lua
 ```
-
-Every module is loaded, every exported function is checked to exist, and the pure functions are called with known inputs.
 
 ## Licence
 

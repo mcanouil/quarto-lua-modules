@@ -31,6 +31,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       # A push made with the default token triggers no workflow, which leaves
       # the bump pull request without the checks its auto-merge waits for.
@@ -57,12 +59,26 @@ jobs:
           bump: ${{ inputs.version }}
           ecosystems: citation
 
+      # The catalogue names the release `vendor.sh --declare` pins a new
+      # manifest to, so it moves with the release it ships beside.
+      - name: Pin the catalogue to this release
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v version="${VERSION}" '$1 == "source" && $2 == "quarto-lua-modules" { $5 = version } { print }' \
+            scripts/sources.list > scripts/sources.list.new
+          mv scripts/sources.list.new scripts/sources.list
+          grep -q "^source quarto-lua-modules .* ${VERSION} MIT" scripts/sources.list
+
       - name: Land the bump
         id: land
         uses: mcanouil/release-actions/land@v1
         with:
           mode: pull-request
-          files: ${{ steps.bump.outputs.files }}
+          files: |
+            ${{ steps.bump.outputs.files }}
+            scripts/sources.list
           version: ${{ steps.bump.outputs.version }}
           message: "ci: bump version for release :rocket:"
           branch: ci/bump-version
@@ -75,14 +91,16 @@ jobs:
       # A release is what a vendoring manifest points at, so it must not carry
       # a module that fails to load.
       - name: Run the tests
-        run: quarto pandoc lua tests/run.lua
+        run: |
+          quarto pandoc lua tests/run.lua
+          tests/vendor.sh
 
       - name: Build the archive
         env:
           VERSION: ${{ steps.bump.outputs.version }}
         run: |
           set -euo pipefail
-          tar --create --gzip --file "quarto-lua-modules-${VERSION}.tar.gz" modules LICENSE README.md
+          tar --create --gzip --file "quarto-lua-modules-${VERSION}.tar.gz" modules scripts LICENSE README.md
           # Recorded so a manifest can pin the archive it vendored.
           sha256sum "quarto-lua-modules-${VERSION}.tar.gz" > "quarto-lua-modules-${VERSION}.tar.gz.sha256"
 
@@ -104,4 +122,20 @@ jobs:
             quarto-lua-modules-${{ steps.bump.outputs.version }}.tar.gz
             quarto-lua-modules-${{ steps.bump.outputs.version }}.tar.gz.sha256
             modules/*.lua
+            scripts/vendor.sh
+            scripts/sources.list
           token: ${{ steps.token.outputs.token }}
+
+  # The standard deployment of the site: it is built from the tag this release
+  # creates. A pull request never deploys it, and a manual run of the Pages
+  # workflow deploys only when someone starts it by hand.
+  pages:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: mcanouil/quarto-workflows/.github/workflows/pages.yml@v2
+    with:
+      ref: ${{ needs.release.outputs.version }}
+      quarto: pre-release
