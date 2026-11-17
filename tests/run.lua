@@ -1955,6 +1955,10 @@ do
     end
     check(skipped_in(tmp .. '/owned'), 'a filter list in a shape the module does not know keeps the copy first')
 
+    _G.param = function() error('params are not ready') end
+    local raised_ok, raised = pcall(skipped_in, tmp .. '/owned')
+    check(raised_ok and raised == true, 'a filter list that raises an error keeps the copy first', tostring(raised))
+
     _G.param = previous_param
   end)
 

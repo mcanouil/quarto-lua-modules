@@ -1,4 +1,4 @@
---- MC Embedded - Load a filter that an extension bundles, unless the project has its own copy
+--- MC Embedded - Load a filter that an extension bundles, unless the page runs the project's own copy
 --- @module "embedded"
 --- @license MIT
 --- @copyright 2026 Mickaël Canouil
@@ -175,8 +175,8 @@ local function page_runs_from(dir)
   if type(_G.param) ~= 'function' then
     return nil
   end
-  local listed = _G.param('quarto-filters')
-  if type(listed) ~= 'table' then
+  local read, listed = pcall(_G.param, 'quarto-filters')
+  if not read or type(listed) ~= 'table' then
     return nil
   end
   local keys = { 'entryPoints', 'beforeQuartoFilters', 'afterQuartoFilters' }
@@ -230,7 +230,9 @@ local function wrap_filter(file, filter)
   return wrapped
 end
 
---- Load a bundled filter, or skip it when the project has its own copy.
+--- Load a bundled filter, or skip it when the page runs a filter from the
+--- project's own copy. Without a filter list from Quarto, a project copy
+--- alone skips the bundled filter.
 --- The entry runs in its own environment, with `PANDOC_SCRIPT_FILE` set to
 --- its path, as Quarto runs a filter. An entry that returns nothing gives the
 --- functions it defines as its filter.
