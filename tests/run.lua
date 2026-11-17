@@ -1944,6 +1944,10 @@ do
     _G.quarto.doc = { input_file = tmp .. '/owned/doc.qmd' }
     check(next(embedded.load('veil', entry)) == nil, 'a project directory with a trailing separator still finds the copy')
 
+    project('/')
+    _G.quarto.doc = { input_file = tmp .. '/owned/doc.qmd' }
+    check(next(embedded.load('veil', entry)) == nil, 'a project at the file system root still finds the copy and stops')
+
     _G.param = previous_param
   end)
 

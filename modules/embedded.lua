@@ -96,6 +96,19 @@ local function find_copy_in(extensions, name)
   return nil
 end
 
+--- Normalise a directory and drop a trailing separator, except at a root
+--- such as `/` or `C:\\`.
+--- @param dir string
+--- @return string
+local function directory(dir)
+  dir = pandoc.path.normalize(dir)
+  local trimmed = dir:gsub('[/\\]+$', '')
+  if trimmed == '' or trimmed:match('^%a:$') then
+    return dir
+  end
+  return trimmed
+end
+
 --- Tell whether a path is a directory or lies inside it.
 --- Paths are compared by whole components, so `/a/proj` does not hold
 --- `/a/project`.
@@ -104,7 +117,10 @@ end
 --- @return boolean
 local function inside(path, dir)
   path = pandoc.path.normalize(path)
-  dir = pandoc.path.normalize(dir):gsub('[/\\]+$', '')
+  dir = directory(dir)
+  if dir:sub(-1) == pandoc.path.separator then
+    return path:sub(1, #dir) == dir
+  end
   return path == dir or path:sub(1, #dir + 1) == dir .. pandoc.path.separator
 end
 
@@ -122,11 +138,15 @@ local function search_roots()
   if root == nil then
     return { dir }
   end
-  root = pandoc.path.normalize(root):gsub('[/\\]+$', '')
+  root = directory(root)
   local roots = {}
   while dir ~= root and inside(dir, root) do
     roots[#roots + 1] = dir
-    dir = pandoc.path.directory(dir)
+    local parent = pandoc.path.directory(dir)
+    if parent == dir then
+      break
+    end
+    dir = parent
   end
   roots[#roots + 1] = root
   return roots
