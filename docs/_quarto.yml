@@ -17,6 +17,12 @@ project:
     - site.webmanifest
     - assets/icons/*.png
 
+# Written by _scripts/pre-render.sh from CITATION.cff, and read here so that
+# Atelier can show the version beside the site title. Quarto skips a file that
+# is not there, so a render without pre-render still succeeds.
+metadata-files:
+  - _atelier-version.yml
+
 website:
   title: "Lua Modules"
   description: "Shared Lua modules for Quarto extensions: string, metadata, paths, HTML, and schema checks."
