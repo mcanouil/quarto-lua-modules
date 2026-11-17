@@ -1898,6 +1898,53 @@ do
     local topdown = embedded.load('veil', topdown_entry)[1] or {}
     equal(topdown.traverse, 'topdown', 'an entry that returns nothing keeps its `traverse` setting')
     equal(topdown.PANDOC_SCRIPT_FILE, nil, 'the injected script path is not part of the filter')
+
+    -- Quarto lists the filters of the page in `param('quarto-filters')`, so
+    -- the stub answers with the entry points that a render would give.
+    local previous_param = rawget(_G, 'param')
+    local function filters(entry_points, before, after)
+      _G.param = function(name)
+        if name == 'quarto-filters' then
+          return { entryPoints = entry_points or {}, beforeQuartoFilters = before or {},
+            afterQuartoFilters = after or {}, quartoFilters = {} }
+        end
+      end
+    end
+    local owned_copy = tmp .. '/owned/_extensions/local/veil'
+
+    filters({ { at = 'pre-quarto', path = owned_copy .. '/veil.lua' } })
+    check(skipped_in(tmp .. '/owned'), 'a copy that the page names in `filters` is skipped')
+
+    filters({}, { owned_copy .. '/veil.lua' })
+    check(skipped_in(tmp .. '/owned'), 'a copy named in the list before the Quarto filters is skipped')
+
+    filters({}, {}, { { path = owned_copy .. '/veil.lua' } })
+    check(skipped_in(tmp .. '/owned'), 'a copy named in the list after the Quarto filters is skipped')
+
+    filters({ { at = 'pre-quarto', path = tmp .. '/elsewhere/veil.lua' } })
+    check(not skipped_in(tmp .. '/owned'), 'a copy that the page does not name leaves the bundled filter on')
+
+    filters({ { at = 'pre-quarto', path = owned_copy .. '-extra/veil.lua' } })
+    check(not skipped_in(tmp .. '/owned'), 'a named filter in a folder that only starts like the copy does not count')
+
+    manifest(tmp .. '/cased/_extensions/local/Veil')
+    filters({ { at = 'pre-quarto', path = tmp .. '/cased/_extensions/local/Veil/veil.lua' } })
+    check(not skipped_in(tmp .. '/cased'), 'a copy whose folder name differs in case is not the same extension')
+
+    manifest(tmp .. '/proj2/x/_extensions/local/veil')
+    filters({ { at = 'pre-quarto', path = tmp .. '/proj2/x/_extensions/local/veil/veil.lua' } })
+    project(tmp .. '/proj')
+    pandoc.system.make_directory(tmp .. '/proj', true)
+    _G.quarto.doc = { input_file = tmp .. '/proj2/x/doc.qmd' }
+    check(next(embedded.load('veil', entry)) ~= nil,
+      'a folder that only starts like the project directory is not searched')
+
+    filters({ { at = 'pre-quarto', path = owned_copy .. '/veil.lua' } })
+    project(tmp .. '/owned/')
+    _G.quarto.doc = { input_file = tmp .. '/owned/doc.qmd' }
+    check(next(embedded.load('veil', entry)) == nil, 'a project directory with a trailing separator still finds the copy')
+
+    _G.param = previous_param
   end)
 
   _G.embedded_test_top = nil
@@ -1989,6 +2036,11 @@ do
         page, output = render(engine)
         check(page:find('project-copy', 1, true) ~= nil and page:find('bundled-resource', 1, true) == nil,
           engine .. ' skips the bundled filter when the project has its own copy', output:sub(-600))
+
+        page_filters({ 'outer' })
+        page, output = render(engine)
+        check(page:find('bundled-resource', 1, true) ~= nil and page:find('project-copy', 1, true) == nil,
+          engine .. ' runs the bundled filter when the page does not name the project copy', output:sub(-600))
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
       end

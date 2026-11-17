@@ -49,11 +49,11 @@ It needs `string.lua` and `html.lua`.
 
 ## embedded.lua
 
-Loads a filter that an extension bundles, and skips it when the project has its own copy of the same extension.
+Loads a filter that an extension bundles, and skips it when the page runs the project's own copy of the same extension.
 
 | Function | Returns | What it does |
 | --- | --- | --- |
-| `load(name, file)` | table | Loads the bundled filter at `file`, unless the project has its own copy of the extension `name`. Returns the list of filters, which is empty when the bundled one is skipped. |
+| `load(name, file)` | table | Loads the bundled filter at `file`, unless the page runs a filter from the project's own copy of the extension `name`. A copy that the page does not name in `filters` leaves the bundled filter on. Returns the list of filters, which is empty when the bundled one is skipped. |
 
 : Functions of `embedded.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
 

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - feat: Ship `vendor.sh` and its source catalogue with each release, so an extension can declare, fetch, check and update the modules with one command. (#29)
+- fix: `embedded.lua` skips a bundled filter only when the page runs the project's copy, so a copy that `filters` does not name no longer turns the bundled filter off. It also matches folder names exactly, and compares paths by whole components.
 
 ## 2.11.0 (2026-11-16)
 
