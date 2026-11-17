@@ -179,7 +179,15 @@ local function page_runs_from(dir)
   if type(listed) ~= 'table' then
     return nil
   end
-  for _, key in ipairs({ 'entryPoints', 'beforeQuartoFilters', 'afterQuartoFilters' }) do
+  local keys = { 'entryPoints', 'beforeQuartoFilters', 'afterQuartoFilters' }
+  local known = false
+  for _, key in ipairs(keys) do
+    known = known or type(listed[key]) == 'table'
+  end
+  if not known then
+    return nil
+  end
+  for _, key in ipairs(keys) do
     for _, filter in ipairs(listed[key] or {}) do
       local path = type(filter) == 'table' and filter.path or filter
       if type(path) == 'string' and inside(path, dir) then
@@ -239,8 +247,12 @@ function M.load(name, file)
   local copy = find_project_copy(name)
   if copy ~= nil then
     local runs = page_runs_from(copy)
-    if runs ~= false then
+    if runs == true then
       quarto.log.debug('[embedded] ' .. name .. ' is skipped: the page runs the project copy in ' .. copy .. '.')
+      return {}
+    end
+    if runs == nil then
+      quarto.log.debug('[embedded] ' .. name .. ' is skipped: this Quarto gives no filter list, so the project copy in ' .. copy .. ' wins.')
       return {}
     end
     quarto.log.debug('[embedded] ' .. name .. ' runs: the page does not name the project copy in ' .. copy .. '.')

@@ -1948,6 +1948,13 @@ do
     _G.quarto.doc = { input_file = tmp .. '/owned/doc.qmd' }
     check(next(embedded.load('veil', entry)) == nil, 'a project at the file system root still finds the copy and stops')
 
+    _G.param = function(name)
+      if name == 'quarto-filters' then
+        return { quartoFilters = {} }
+      end
+    end
+    check(skipped_in(tmp .. '/owned'), 'a filter list in a shape the module does not know keeps the copy first')
+
     _G.param = previous_param
   end)
 
