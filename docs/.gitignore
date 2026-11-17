@@ -10,6 +10,9 @@
 # repository, and kept between renders. See assets/social/README.md.
 /assets/social/og-image.png
 
+# Written by _scripts/pre-render.sh from CITATION.cff, and removed by post-render.sh.
+/_atelier-version.yml
+
 # A repository root that ignores *.html, as one holding rendered output often
 # does, also swallows the six partials atelier ships under _extensions/, which
 # carry the skip link and the accessibility scripts. Nothing reports it. The
