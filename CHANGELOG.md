@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.13.0 (2026-11-18)
+
 - feat: `embedded.load` takes `options.plugin` and `options.shortcode`, which warn when a project copy would run its Reveal.js plugin or its shortcodes with the bundled filter.
 
 ## 2.12.0 (2026-11-17)
