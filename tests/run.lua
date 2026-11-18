@@ -2182,6 +2182,12 @@ do
           page, output = render(engine)
           check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
             engine .. ' does not warn when a deck names the project copy in both lists', output:sub(-600))
+          write(tmp .. '/_quarto.yml', 'project:\n  type: default\nrevealjs-plugins:\n  - veil\n')
+          deck(false)
+          page, output = render(engine)
+          write(tmp .. '/_quarto.yml', 'project:\n  type: default\n')
+          check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
+            engine .. ' does not warn when the project names the plugin in `_quarto.yml`', output:sub(-600))
           page_filters({ 'outer', 'veil' })
           page, output = render(engine)
           check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
