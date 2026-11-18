@@ -204,25 +204,38 @@ local function page_runs_from(dir)
   return false
 end
 
---- Tell whether the page names a copy of an extension in `revealjs-plugins`.
+--- Tell whether one entry of `revealjs-plugins` names a copy of an extension.
 --- A page entry is a name such as `veil` or `owner/veil`, or a path that ends
 --- with the folder of the copy. The plugins that a format gives are already
 --- resolved to tables, so they never match.
---- @param meta table The page metadata
+--- @param entry any One entry of `revealjs-plugins`
 --- @param name string The extension name, such as `veil`
+--- @return boolean
+local function names_plugin(entry, name)
+  local kind = pandoc.utils.type(entry)
+  if kind ~= 'string' and kind ~= 'Inlines' then
+    return false
+  end
+  local text = pandoc.utils.stringify(entry):gsub('\\', '/'):gsub('/+$', '')
+  return text == name or text:sub(-#name - 1) == '/' .. name
+end
+
+--- Tell whether `revealjs-plugins` in the page metadata names the copy.
+--- The value is a list of entries, or a single entry.
+--- @param meta table The page metadata
+--- @param name string The extension name
 --- @return boolean
 local function page_names_plugin(meta, name)
   local plugins = meta['revealjs-plugins']
-  if type(plugins) ~= 'table' then
+  if names_plugin(plugins, name) then
+    return true
+  end
+  if pandoc.utils.type(plugins) ~= 'List' and pandoc.utils.type(plugins) ~= 'table' then
     return false
   end
   for _, plugin in ipairs(plugins) do
-    local kind = pandoc.utils.type(plugin)
-    if kind == 'string' or kind == 'Inlines' then
-      local text = pandoc.utils.stringify(plugin):gsub('\\', '/'):gsub('/+$', '')
-      if text == name or text:sub(-#name - 1) == '/' .. name then
-        return true
-      end
+    if names_plugin(plugin, name) then
+      return true
     end
   end
   return false

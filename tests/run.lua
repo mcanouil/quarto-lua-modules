@@ -1983,7 +1983,11 @@ do
       _G.quarto.doc = { is_format = function(name) return name == (format or 'revealjs') end }
       warnings = {}
       local loaded = embedded.load('veil', entry, options)
-      local meta = { ['revealjs-plugins'] = pandoc.List(plugins or {}) }
+      local value = plugins or {}
+      if pandoc.utils.type(value) == 'table' then
+        value = pandoc.List(value)
+      end
+      local meta = { ['revealjs-plugins'] = value }
       for _, filter in ipairs(loaded) do
         if type(filter.Meta) == 'function' then
           filter.Meta(meta)
@@ -2012,6 +2016,9 @@ do
 
     found = split_warnings(tmp .. '/owned', named_filter, {}, plugin, 'html')
     equal(#found, 0, 'a page that is not a deck does not warn about plugins')
+
+    found = split_warnings(tmp .. '/owned', named_filter, veil_named, plugin)
+    equal(#found, 0, 'a single plugin given without a list matches the copy')
 
     found = split_warnings(tmp .. '/owned', named_filter, { 'local/veil' }, plugin)
     equal(#found, 0, 'a plugin named with its owner matches the copy')
