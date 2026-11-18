@@ -1746,7 +1746,7 @@ do
   -- checks see what a bundled filter sees inside a real render.
   local embedded = modules['embedded']
   local previous_quarto, previous_internal = _G.quarto, _G._quarto
-  local stack, debug_messages = {}, {}
+  local stack, debug_messages, warnings = {}, {}, {}
 
   _G._quarto = {
     withScriptFile = function(file, callback)
@@ -1761,7 +1761,10 @@ do
   local function project(root)
     _G.quarto = {
       project = { directory = root },
-      log = { debug = function(message) debug_messages[#debug_messages + 1] = message end },
+      log = {
+        debug = function(message) debug_messages[#debug_messages + 1] = message end,
+        warning = function(message) warnings[#warnings + 1] = message end,
+      },
     }
   end
 
@@ -1959,6 +1962,99 @@ do
     local raised_ok, raised = pcall(skipped_in, tmp .. '/owned')
     check(raised_ok and raised == true, 'a filter list that raises an error keeps the copy first', tostring(raised))
 
+    -- A bundled extension that also gives a Reveal.js plugin or a shortcode
+    -- can end up split: the Lua of one copy with the plugin or the shortcode
+    -- of the other. The options make `load` warn about it.
+    local named_filter = { { at = 'pre-quarto', path = owned_copy .. '/veil.lua' } }
+    local resolved_plugin = { name = 'RevealVeil', path = tmp .. '/bundled/veil' }
+
+    local veil_named = pandoc.Inlines({ pandoc.Str('veil') })
+
+    --- Load with options in a project, run the plugin check on the page
+    --- metadata, and return the warnings and the number of filters.
+    --- Without `entry_points`, Quarto gives no filter list.
+    local function split_warnings(root, entry_points, plugins, options, format)
+      if entry_points then
+        filters(entry_points)
+      else
+        _G.param = nil
+      end
+      project(root)
+      _G.quarto.doc = { is_format = function(name) return name == (format or 'revealjs') end }
+      warnings = {}
+      local loaded = embedded.load('veil', entry, options)
+      local value = plugins or {}
+      if pandoc.utils.type(value) == 'table' then
+        value = pandoc.List(value)
+      end
+      local meta = { ['revealjs-plugins'] = value }
+      for _, filter in ipairs(loaded) do
+        if type(filter.Meta) == 'function' then
+          filter.Meta(meta)
+        end
+      end
+      return warnings, #loaded
+    end
+
+    local plugin = { plugin = true }
+    local found = split_warnings(tmp .. '/owned', named_filter, { resolved_plugin }, plugin)
+    equal(#found, 1, 'a copy named in `filters` only warns once')
+    local message = found[1] or ''
+    check(message:find('[embedded]', 1, true) == 1 and message:find('veil', 1, true) ~= nil
+      and message:find('`filters`', 1, true) ~= nil and message:find('`revealjs-plugins`', 1, true) ~= nil
+      and message:find('Name the copy in both lists.', 1, true) ~= nil,
+      'the warning names the tool, both lists, and the fix', message)
+
+    found = split_warnings(tmp .. '/owned', {}, { resolved_plugin, veil_named }, plugin)
+    equal(#found, 1, 'a copy named in `revealjs-plugins` only warns once')
+
+    found = split_warnings(tmp .. '/owned', named_filter, { resolved_plugin, veil_named }, plugin)
+    equal(#found, 0, 'a copy named in both lists does not warn')
+
+    found = split_warnings(tmp .. '/owned', {}, { resolved_plugin }, plugin)
+    equal(#found, 0, 'a copy named in neither list does not warn')
+
+    found = split_warnings(tmp .. '/owned', named_filter, {}, plugin, 'html')
+    equal(#found, 0, 'a page that is not a deck does not warn about plugins')
+
+    found = split_warnings(tmp .. '/owned', named_filter, veil_named, plugin)
+    equal(#found, 0, 'a single plugin given without a list matches the copy')
+
+    found = split_warnings(tmp .. '/owned', named_filter, { 'local/veil' }, plugin)
+    equal(#found, 0, 'a plugin named with its owner matches the copy')
+
+    found = split_warnings(tmp .. '/owned', named_filter, { 'myveil' }, plugin)
+    equal(#found, 1, 'a plugin with a longer name is not a match')
+
+    found = split_warnings(tmp .. '/owned', named_filter, { '_extensions/local/veil' }, plugin)
+    equal(#found, 0, 'a plugin named by the path of the copy matches')
+
+    local with_count
+    found, with_count = split_warnings(tmp .. '/empty', {}, { 'veil' }, plugin)
+    local _, without_count = split_warnings(tmp .. '/empty', {}, { 'veil' })
+    check(#found == 0 and with_count == without_count,
+      'without a project copy, the plugin option adds no check', with_count .. ' and ' .. without_count)
+
+    found = split_warnings(tmp .. '/owned', nil, { 'veil' }, plugin)
+    equal(#found, 0, 'without a filter list from Quarto, the plugin option does not warn')
+
+    local _, plain_count = split_warnings(tmp .. '/owned', {}, {})
+    equal(plain_count, 1, 'without options, `load` adds no check filter')
+
+    local shortcode = { shortcode = true }
+    found = split_warnings(tmp .. '/owned', {}, {}, shortcode)
+    equal(#found, 1, 'a shortcode copy that `filters` does not name warns once')
+    message = found[1] or ''
+    check(message:find('[embedded]', 1, true) == 1 and message:find('veil', 1, true) ~= nil
+      and message:find('shortcodes', 1, true) ~= nil and message:find('Name the copy in `filters`.', 1, true) ~= nil,
+      'the shortcode warning names the tool, the shortcodes, and the fix', message)
+
+    found = split_warnings(tmp .. '/owned', named_filter, {}, shortcode)
+    equal(#found, 0, 'a shortcode copy named in `filters` does not warn')
+
+    found = split_warnings(tmp .. '/empty', {}, {}, shortcode)
+    equal(#found, 0, 'without a project copy, the shortcode option does not warn')
+
     _G.param = previous_param
   end)
 
@@ -2056,6 +2152,53 @@ do
         page, output = render(engine)
         check(page:find('bundled-resource', 1, true) ~= nil and page:find('project-copy', 1, true) == nil,
           engine .. ' runs the bundled filter when the page does not name the project copy', output:sub(-600))
+
+        -- A copy that also gives a Reveal.js plugin, named in only one list.
+        do
+          write(outer .. '/bundled/veil.lua', table.concat({
+            "local embedded = require(quarto.utils.resolve_path('../_vendor/quarto-lua-modules/embedded.lua'):gsub('%.lua$', ''))",
+            "return embedded.load('veil', quarto.utils.resolve_path('../_extensions/owner/veil/veil.lua'), { plugin = true })",
+          }, '\n') .. '\n')
+          write(tmp .. '/_extensions/local/veil/_extension.yml', table.concat({
+            'title: Veil', 'version: 9.9.9', 'contributes:', '  filters:', '    - veil.lua',
+            '  revealjs-plugins:', '    - name: RevealVeilStub', '      script:', '        - plugin.js', '',
+          }, '\n'))
+          write(tmp .. '/_extensions/local/veil/plugin.js',
+            "window.RevealVeilStub = function () { return { id: 'veil-stub', init: function () {} }; };\n")
+          local function deck(plugins)
+            local lines = { '---', 'title: Probe', 'format: revealjs', 'filters:', '  - outer', '  - veil' }
+            if plugins then
+              lines[#lines + 1] = 'revealjs-plugins:'
+              lines[#lines + 1] = '  - veil'
+            end
+            write(tmp .. '/doc.qmd', table.concat(lines, '\n') .. '\n---\n\n## Slide\n')
+          end
+          local split_warning = 'Name the copy in both lists.'
+          deck(false)
+          page, output = render(engine)
+          check(output:find(split_warning, 1, true) ~= nil,
+            engine .. ' warns when a deck names the project copy in `filters` only', output:sub(-600))
+          deck(true)
+          page, output = render(engine)
+          check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
+            engine .. ' does not warn when a deck names the project copy in both lists', output:sub(-600))
+          write(tmp .. '/_quarto.yml', 'project:\n  type: default\nrevealjs-plugins:\n  - veil\n')
+          deck(false)
+          page, output = render(engine)
+          write(tmp .. '/_quarto.yml', 'project:\n  type: default\n')
+          check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
+            engine .. ' does not warn when the project names the plugin in `_quarto.yml`', output:sub(-600))
+          page_filters({ 'outer', 'veil' })
+          page, output = render(engine)
+          check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
+            engine .. ' does not warn about plugins on a page that is not a deck', output:sub(-600))
+
+          write(outer .. '/bundled/veil.lua', table.concat({
+            "local embedded = require(quarto.utils.resolve_path('../_vendor/quarto-lua-modules/embedded.lua'):gsub('%.lua$', ''))",
+            "return embedded.load('veil', quarto.utils.resolve_path('../_extensions/owner/veil/veil.lua'))",
+          }, '\n') .. '\n')
+          os.remove(tmp .. '/_extensions/local/veil/plugin.js')
+        end
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
       end

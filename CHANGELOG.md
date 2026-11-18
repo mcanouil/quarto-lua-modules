@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat: `embedded.load` takes `options.plugin` and `options.shortcode`, which warn when a project copy would run its Reveal.js plugin or its shortcodes with the bundled filter.
+
 ## 2.12.0 (2026-11-17)
 
 - feat: Ship `vendor.sh` and its source catalogue with each release, so an extension can declare, fetch, check and update the modules with one command. (#29)
