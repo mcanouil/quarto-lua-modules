@@ -238,6 +238,10 @@ end
 local function plugin_check(name, copy, in_filters)
   return {
     Meta = function(meta)
+      local doc = quarto.doc
+      if doc ~= nil and type(doc.is_format) == 'function' and not doc.is_format('revealjs') then
+        return nil
+      end
       if in_filters ~= page_names_plugin(meta, name) then
         local named = in_filters and '`filters`' or '`revealjs-plugins`'
         local missing = in_filters and '`revealjs-plugins`' or '`filters`'

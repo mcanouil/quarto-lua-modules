@@ -1973,13 +1973,14 @@ do
     --- Load with options in a project, run the plugin check on the page
     --- metadata, and return the warnings and the number of filters.
     --- Without `entry_points`, Quarto gives no filter list.
-    local function split_warnings(root, entry_points, plugins, options)
+    local function split_warnings(root, entry_points, plugins, options, format)
       if entry_points then
         filters(entry_points)
       else
         _G.param = nil
       end
       project(root)
+      _G.quarto.doc = { is_format = function(name) return name == (format or 'revealjs') end }
       warnings = {}
       local loaded = embedded.load('veil', entry, options)
       local meta = { ['revealjs-plugins'] = pandoc.List(plugins or {}) }
@@ -2008,6 +2009,9 @@ do
 
     found = split_warnings(tmp .. '/owned', {}, { resolved_plugin }, plugin)
     equal(#found, 0, 'a copy named in neither list does not warn')
+
+    found = split_warnings(tmp .. '/owned', named_filter, {}, plugin, 'html')
+    equal(#found, 0, 'a page that is not a deck does not warn about plugins')
 
     found = split_warnings(tmp .. '/owned', named_filter, { 'local/veil' }, plugin)
     equal(#found, 0, 'a plugin named with its owner matches the copy')
@@ -2171,6 +2175,16 @@ do
           page, output = render(engine)
           check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
             engine .. ' does not warn when a deck names the project copy in both lists', output:sub(-600))
+          page_filters({ 'outer', 'veil' })
+          page, output = render(engine)
+          check(page:find('project-copy', 1, true) ~= nil and output:find(split_warning, 1, true) == nil,
+            engine .. ' does not warn about plugins on a page that is not a deck', output:sub(-600))
+
+          write(outer .. '/bundled/veil.lua', table.concat({
+            "local embedded = require(quarto.utils.resolve_path('../_vendor/quarto-lua-modules/embedded.lua'):gsub('%.lua$', ''))",
+            "return embedded.load('veil', quarto.utils.resolve_path('../_extensions/owner/veil/veil.lua'))",
+          }, '\n') .. '\n')
+          os.remove(tmp .. '/_extensions/local/veil/plugin.js')
         end
       else
         io.stdout:write('skip ', description, ': ', engine, ' is not on the PATH\n')
