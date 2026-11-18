@@ -219,9 +219,8 @@ local function page_names_plugin(meta, name)
   for _, plugin in ipairs(plugins) do
     local kind = pandoc.utils.type(plugin)
     if kind == 'string' or kind == 'Inlines' then
-      local text = pandoc.utils.stringify(plugin):gsub('[/\\]+$', '')
-      local tail = text:sub(-#name - 1)
-      if text == name or tail == '/' .. name or tail == '\\' .. name then
+      local text = pandoc.utils.stringify(plugin):gsub('\\', '/'):gsub('/+$', '')
+      if text == name or text:sub(-#name - 1) == '/' .. name then
         return true
       end
     end
@@ -239,18 +238,13 @@ end
 local function plugin_check(name, copy, in_filters)
   return {
     Meta = function(meta)
-      local in_plugins = page_names_plugin(meta, name)
-      if in_filters == in_plugins then
-        return nil
+      if in_filters ~= page_names_plugin(meta, name) then
+        local named = in_filters and '`filters`' or '`revealjs-plugins`'
+        local missing = in_filters and '`revealjs-plugins`' or '`filters`'
+        quarto.log.warning('[embedded] ' .. name .. ': the page names the project copy at ' .. copy ..
+          ' in ' .. named .. ' but not in ' .. missing ..
+          ', so the deck mixes the Lua filter and the Reveal.js plugin of two copies. Name the copy in both lists.')
       end
-      local named, missing = '`filters`', '`revealjs-plugins`'
-      if in_plugins then
-        named, missing = missing, named
-      end
-      quarto.log.warning('[embedded] ' .. name .. ': the page names the project copy at ' .. copy ..
-        ' in ' .. named .. ' but not in ' .. missing ..
-        ', so the deck mixes the Lua filter and the Reveal.js plugin of two copies. Name the copy in both lists.')
-      return nil
     end,
   }
 end
@@ -314,11 +308,11 @@ function M.load(name, file, options)
       '. Give the name of the bundled extension that holds the entry.')
   end
   local copy = find_project_copy(name)
-  local checks = {}
+  local check
   if copy ~= nil then
     local runs = page_runs_from(copy)
     if runs ~= nil and options.plugin then
-      checks[1] = plugin_check(name, copy, runs)
+      check = plugin_check(name, copy, runs)
     end
     if runs == false and options.shortcode then
       quarto.log.warning('[embedded] ' .. name .. ': the shortcodes of the project copy in ' .. copy ..
@@ -327,7 +321,7 @@ function M.load(name, file, options)
     end
     if runs == true then
       quarto.log.debug('[embedded] ' .. name .. ' is skipped: the page runs the project copy in ' .. copy .. '.')
-      return checks
+      return { check }
     end
     if runs == nil then
       quarto.log.debug('[embedded] ' .. name .. ' is skipped: this Quarto gives no filter list, so the project copy in ' .. copy .. ' wins.')
@@ -371,9 +365,7 @@ function M.load(name, file, options)
     end
     filters[index] = wrap_filter(file, filter)
   end
-  for _, check in ipairs(checks) do
-    filters[#filters + 1] = check
-  end
+  filters[#filters + 1] = check
   return filters
 end
 

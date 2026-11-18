@@ -1968,10 +1968,17 @@ do
     local named_filter = { { at = 'pre-quarto', path = owned_copy .. '/veil.lua' } }
     local resolved_plugin = { name = 'RevealVeil', path = tmp .. '/bundled/veil' }
 
+    local veil_named = pandoc.Inlines({ pandoc.Str('veil') })
+
     --- Load with options in a project, run the plugin check on the page
     --- metadata, and return the warnings and the number of filters.
+    --- Without `entry_points`, Quarto gives no filter list.
     local function split_warnings(root, entry_points, plugins, options)
-      filters(entry_points)
+      if entry_points then
+        filters(entry_points)
+      else
+        _G.param = nil
+      end
       project(root)
       warnings = {}
       local loaded = embedded.load('veil', entry, options)
@@ -1993,10 +2000,10 @@ do
       and message:find('Name the copy in both lists.', 1, true) ~= nil,
       'the warning names the tool, both lists, and the fix', message)
 
-    found = split_warnings(tmp .. '/owned', {}, { resolved_plugin, pandoc.Inlines({ pandoc.Str('veil') }) }, plugin)
+    found = split_warnings(tmp .. '/owned', {}, { resolved_plugin, veil_named }, plugin)
     equal(#found, 1, 'a copy named in `revealjs-plugins` only warns once')
 
-    found = split_warnings(tmp .. '/owned', named_filter, { resolved_plugin, pandoc.Inlines({ pandoc.Str('veil') }) }, plugin)
+    found = split_warnings(tmp .. '/owned', named_filter, { resolved_plugin, veil_named }, plugin)
     equal(#found, 0, 'a copy named in both lists does not warn')
 
     found = split_warnings(tmp .. '/owned', {}, { resolved_plugin }, plugin)
@@ -2011,21 +2018,14 @@ do
     found = split_warnings(tmp .. '/owned', named_filter, { '_extensions/local/veil' }, plugin)
     equal(#found, 0, 'a plugin named by the path of the copy matches')
 
-    local _, with_count = split_warnings(tmp .. '/empty', {}, { 'veil' }, plugin)
+    local with_count
+    found, with_count = split_warnings(tmp .. '/empty', {}, { 'veil' }, plugin)
     local _, without_count = split_warnings(tmp .. '/empty', {}, { 'veil' })
-    found = split_warnings(tmp .. '/empty', {}, { 'veil' }, plugin)
     check(#found == 0 and with_count == without_count,
       'without a project copy, the plugin option adds no check', with_count .. ' and ' .. without_count)
 
-    _G.param = nil
-    project(tmp .. '/owned')
-    warnings = {}
-    for _, filter in ipairs(embedded.load('veil', entry, plugin)) do
-      if type(filter.Meta) == 'function' then
-        filter.Meta({ ['revealjs-plugins'] = pandoc.List({ 'veil' }) })
-      end
-    end
-    equal(#warnings, 0, 'without a filter list from Quarto, the plugin option does not warn')
+    found = split_warnings(tmp .. '/owned', nil, { 'veil' }, plugin)
+    equal(#found, 0, 'without a filter list from Quarto, the plugin option does not warn')
 
     local _, plain_count = split_warnings(tmp .. '/owned', {}, {})
     equal(plain_count, 1, 'without options, `load` adds no check filter')
