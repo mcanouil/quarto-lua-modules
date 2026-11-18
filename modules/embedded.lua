@@ -28,6 +28,12 @@ local M = {}
 -- `param('quarto-filters')`. A copy that the page does not name leaves the
 -- bundled filter on. Without that list, a project copy alone skips the
 -- bundled filter.
+--
+-- Only filters go through `load`. Quarto adds a Reveal.js plugin that the page
+-- names to the plugins of the format, and loads the shortcodes of every
+-- project extension, so a project copy can run its plugin or its shortcodes
+-- with the bundled filter. The `plugin` and `shortcode` options warn when that
+-- happens, and tell the author to name the copy in both lists.
 -- Remove when: never.
 
 local MANIFESTS = { '_extension.yml', '_extension.yaml' }
@@ -198,6 +204,57 @@ local function page_runs_from(dir)
   return false
 end
 
+--- Tell whether the page names a copy of an extension in `revealjs-plugins`.
+--- A page entry is a name such as `veil` or `owner/veil`, or a path that ends
+--- with the folder of the copy. The plugins that a format gives are already
+--- resolved to tables, so they never match.
+--- @param meta table The page metadata
+--- @param name string The extension name, such as `veil`
+--- @return boolean
+local function page_names_plugin(meta, name)
+  local plugins = meta['revealjs-plugins']
+  if type(plugins) ~= 'table' then
+    return false
+  end
+  for _, plugin in ipairs(plugins) do
+    local kind = pandoc.utils.type(plugin)
+    if kind == 'string' or kind == 'Inlines' then
+      local text = pandoc.utils.stringify(plugin):gsub('[/\\]+$', '')
+      local tail = text:sub(-#name - 1)
+      if text == name or tail == '/' .. name or tail == '\\' .. name then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+--- A filter that warns when the page names a project copy in only one of
+--- `filters` and `revealjs-plugins`, so the Lua of one copy would run with
+--- the Reveal.js plugin of the other.
+--- @param name string The extension name
+--- @param copy string The directory of the project copy
+--- @param in_filters boolean Whether the page names the copy in `filters`
+--- @return table
+local function plugin_check(name, copy, in_filters)
+  return {
+    Meta = function(meta)
+      local in_plugins = page_names_plugin(meta, name)
+      if in_filters == in_plugins then
+        return nil
+      end
+      local named, missing = '`filters`', '`revealjs-plugins`'
+      if in_plugins then
+        named, missing = missing, named
+      end
+      quarto.log.warning('[embedded] ' .. name .. ': the page names the project copy at ' .. copy ..
+        ' in ' .. named .. ' but not in ' .. missing ..
+        ', so the deck mixes the Lua filter and the Reveal.js plugin of two copies. Name the copy in both lists.')
+      return nil
+    end,
+  }
+end
+
 --- Call a function with a file on top of Quarto's script stack.
 --- `withScriptFile` keeps only the first value of its callback, so the values
 --- are packed and unpacked to keep a second value such as `false`.
@@ -236,22 +293,41 @@ end
 --- The entry runs in its own environment, with `PANDOC_SCRIPT_FILE` set to
 --- its path, as Quarto runs a filter. An entry that returns nothing gives the
 --- functions it defines as its filter.
+--- With `options.plugin`, for an extension that also gives a Reveal.js plugin,
+--- the list ends with a filter that warns when the page names the project
+--- copy in only one of `filters` and `revealjs-plugins`.
+--- With `options.shortcode`, for an extension that also gives shortcodes,
+--- `load` warns when the project has a copy that `filters` does not name:
+--- Quarto loads the shortcodes of every project extension, so the shortcodes
+--- of the copy would run with the bundled filter.
+--- Neither check runs without a filter list from Quarto.
 --- @param name string The extension name to look for in the project, such as `veil`
 --- @param file string The absolute path of the bundled entry, in a folder named `name`
---- @return table The list of filters, empty when skipped
---- @usage return M.load('veil', quarto.utils.resolve_path('../_extensions/mcanouil/veil/veil.lua'))
-function M.load(name, file)
+--- @param options table|nil `{ plugin = boolean, shortcode = boolean }`
+--- @return table The list of filters; when skipped, empty or only the plugin check
+--- @usage return M.load('veil', quarto.utils.resolve_path('../_extensions/mcanouil/veil/veil.lua'), { plugin = true })
+function M.load(name, file, options)
+  options = options or {}
   local folder = pandoc.path.filename(pandoc.path.directory(file))
   if folder ~= name then
     error('[embedded] The entry ' .. file .. ' is not in a folder named ' .. name ..
       '. Give the name of the bundled extension that holds the entry.')
   end
   local copy = find_project_copy(name)
+  local checks = {}
   if copy ~= nil then
     local runs = page_runs_from(copy)
+    if runs ~= nil and options.plugin then
+      checks[1] = plugin_check(name, copy, runs)
+    end
+    if runs == false and options.shortcode then
+      quarto.log.warning('[embedded] ' .. name .. ': the shortcodes of the project copy in ' .. copy ..
+        ' replace the bundled ones, but the page does not name the copy in `filters`,' ..
+        ' so the bundled filter runs with them. Name the copy in `filters`.')
+    end
     if runs == true then
       quarto.log.debug('[embedded] ' .. name .. ' is skipped: the page runs the project copy in ' .. copy .. '.')
-      return {}
+      return checks
     end
     if runs == nil then
       quarto.log.debug('[embedded] ' .. name .. ' is skipped: this Quarto gives no filter list, so the project copy in ' .. copy .. ' wins.')
@@ -294,6 +370,9 @@ function M.load(name, file)
         ' as filter ' .. index .. '. Each filter in the list must be a table.')
     end
     filters[index] = wrap_filter(file, filter)
+  end
+  for _, check in ipairs(checks) do
+    filters[#filters + 1] = check
   end
   return filters
 end

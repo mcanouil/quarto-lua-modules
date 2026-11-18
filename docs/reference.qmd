@@ -53,7 +53,7 @@ Loads a filter that an extension bundles, and skips it when the page runs the pr
 
 | Function | Returns | What it does |
 | --- | --- | --- |
-| `load(name, file)` | table | Loads the bundled filter at `file`, unless the page runs a filter from the project's own copy of the extension `name`. A copy that the page does not name in `filters` leaves the bundled filter on. Returns the list of filters, which is empty when the bundled one is skipped. |
+| `load(name, file, options)` | table | Loads the bundled filter at `file`, unless the page runs a filter from the project's own copy of the extension `name`. A copy that the page does not name in `filters` leaves the bundled filter on. Returns the list of filters, which is empty when the bundled one is skipped, or holds only the `plugin` check. Set `options.plugin` when the extension also gives a Reveal.js plugin: the page then warns if it names the copy in only one of `filters` and `revealjs-plugins`. Set `options.shortcode` when the extension also gives shortcodes: the page then warns if the project has a copy that `filters` does not name, because the shortcodes of the copy always replace the bundled ones. |
 
 : Functions of `embedded.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
 
