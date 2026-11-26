@@ -57,6 +57,37 @@ Loads a filter that an extension bundles, and skips it when the page runs the pr
 
 : Functions of `embedded.lua`. {.striped .hover tbl-colwidths="[30,15,55]"}
 
+## engine.lua
+
+Gives the values that Quarto 1 and Quarto 2 expose through different routes.
+Each function returns the same value on both engines for the same document.
+It reads the data that is present, and never the name or the version of the engine.
+It needs `metadata.lua` and `string.lua`.
+
+| Function | Returns | What it does |
+| --- | --- | --- |
+| `project_repo_url(meta)` | `string` or `nil`, reason | Returns `website.repo-url`, else `book.repo-url`. Quarto 1 gives it in `QUARTO_EXECUTE_INFO`, and Quarto 2 in the document metadata `meta`. The reason is the same as for `metadata.get_project_metadata`, and is set only when `QUARTO_EXECUTE_INFO` cannot be read. |
+| `project_site_url(meta)` | `string` or `nil`, reason | Returns `website.site-url`, else `book.site-url`, by the same rule as `project_repo_url`. |
+| `project_kind(meta)` | `'book'`, `'website'` or `nil`, reason | Returns `'book'` when the project has a `book` map, else `'website'` when it has a `website` map. Returns `nil` for any other project and for a single file. |
+| `document_dir()` | `string` or `nil` | Returns the directory of the document being rendered. Quarto 1 gives it in `QUARTO_DOCUMENT_PATH`, and Quarto 2 through `quarto.doc.input_file`. |
+| `slide_level(meta)` | integer | Returns the Reveal.js slide level. Quarto 1 gives it in `PANDOC_WRITER_OPTIONS.slide_level`, and Quarto 2 in the `slide-level` metadata. Returns 2 when nothing sets it. |
+| `is_output(kind)` | `boolean` | Returns whether the output is of `kind`: `html`, `revealjs`, `typst` or `docx`. It uses `quarto.format.is_<kind>_output()` when it exists, and the `FORMAT` test of Quarto 1 otherwise. Any other kind raises an error. |
+
+: Functions of `engine.lua`. {.striped .hover tbl-colwidths="[25,20,55]"}
+
+Pass the document metadata from a `Pandoc` or `Meta` handler:
+
+```lua
+local engine = require(quarto.utils.resolve_path('_vendor/quarto-lua-modules/engine.lua'):gsub('%.lua$', ''))
+
+function Pandoc(doc)
+  local repo_url = engine.project_repo_url(doc.meta)
+  if repo_url ~= nil then
+    quarto.log.output('repository: ' .. repo_url)
+  end
+end
+```
+
 ## git.lua
 
 Reads the Git repository the document is in.
