@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fix: `extract_div` walks the blocks with `Div:walk`, which Quarto 2 supports, instead of `pandoc.walk_block`.
+
 ## 2.13.0 (2026-11-18)
 
 - feat: `embedded.load` takes `options.plugin` and `options.shortcode`, which warn when a project copy would run its Reveal.js plugin or its shortcodes with the bundled filter.
