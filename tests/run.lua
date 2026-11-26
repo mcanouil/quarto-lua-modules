@@ -770,6 +770,106 @@ do
   check(ok, 'the engine checks ran without raising', err)
 end
 
+io.stdout:write('# engine on both engines\n')
+
+do
+  --- Render a website (a root page and a page in `sub/`) and a single file
+  --- with each engine on the PATH. A filter writes every engine value into the
+  --- page, and the check compares them with the expected values and across
+  --- the two engines.
+  local function quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+  end
+  local function read(path)
+    local handle = io.open(path, 'r')
+    if not handle then
+      return ''
+    end
+    local text = handle:read('a')
+    handle:close()
+    return text
+  end
+  local filter = table.concat({
+    "local engine = require(quarto.utils.resolve_path('_vendor/engine.lua'):gsub('%.lua$', ''))",
+    'function Pandoc(doc)',
+    '  local values = {',
+    "    tostring(engine.project_repo_url(doc.meta)), tostring(engine.project_site_url(doc.meta)),",
+    "    tostring(engine.project_kind(doc.meta)), tostring(engine.document_dir()),",
+    "    tostring(engine.slide_level(doc.meta)), tostring(engine.is_output('html')),",
+    '  }',
+    "  doc.blocks:insert(pandoc.Para(pandoc.Str('ENGINE[' .. table.concat(values, '|') .. ']')))",
+    '  return doc',
+    'end',
+  }, '\n') .. '\n'
+
+  pandoc.system.with_temporary_directory('engine-both', function(tmp)
+    local site = tmp .. '/site'
+    local single = tmp .. '/single'
+    for _, dir in ipairs({ site .. '/sub', site .. '/_vendor', single .. '/_vendor' }) do
+      pandoc.system.make_directory(dir, true)
+    end
+    for _, dir in ipairs({ site, single }) do
+      assert(os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(dir .. '/_vendor')),
+        'cannot copy the modules into ' .. dir)
+      write(dir .. '/engine-filter.lua', filter)
+    end
+    write(site .. '/_quarto.yml', 'project:\n  type: website\nwebsite:\n  title: Site\n'
+      .. '  repo-url: https://github.com/example/site\n  site-url: https://example.org\n'
+      .. 'filters:\n  - engine-filter.lua\n')
+    write(site .. '/index.qmd', '---\ntitle: Root\n---\n\nRoot.\n')
+    write(site .. '/sub/index.qmd', '---\ntitle: Sub\nfilters:\n  - ../engine-filter.lua\n---\n\nSub.\n')
+    write(single .. '/doc.qmd', '---\ntitle: Single\nformat: html\nfilters:\n  - engine-filter.lua\n---\n\nSingle.\n')
+
+    --- The values of one page, with the document directory made relative to `tmp`.
+    local function values(path)
+      local raw = read(path):match('ENGINE%[(.-)%]')
+      if raw == nil then
+        return nil
+      end
+      local parts = {}
+      for part in (raw .. '|'):gmatch('(.-)|') do
+        parts[#parts + 1] = part
+      end
+      parts[4] = (parts[4]:gsub('^.*/engine%-both[^/]*', ''))
+      return table.concat(parts, '|')
+    end
+
+    local expected = {
+      root = 'https://github.com/example/site|https://example.org|website|/site|2|true',
+      sub = 'https://github.com/example/site|https://example.org|website|/site/sub|2|true',
+      single = 'nil|nil|nil|/single|2|true',
+    }
+    local seen = {}
+    for _, engine_name in ipairs({ 'quarto', 'q2' }) do
+      if os.execute(engine_name .. ' --version > /dev/null 2>&1') then
+        os.execute('cd ' .. quote(site) .. ' && ' .. engine_name .. ' render > render-' .. engine_name .. '.log 2>&1')
+        os.execute('cd ' .. quote(single) .. ' && ' .. engine_name .. ' render doc.qmd > render-' .. engine_name .. '.log 2>&1')
+        local got = {
+          root = values(site .. '/_site/index.html'),
+          sub = values(site .. '/_site/sub/index.html'),
+          single = values(single .. '/doc.html'),
+        }
+        for _, page in ipairs({ 'root', 'sub', 'single' }) do
+          check(got[page] == expected[page],
+            string.format('%s gives the expected engine values on the %s page', engine_name, page),
+            string.format('expected %s; got %s; log: %s', expected[page], tostring(got[page]),
+              read((page == 'single' and single or site) .. '/render-' .. engine_name .. '.log'):sub(-400)))
+        end
+        seen[engine_name] = got
+      else
+        io.stdout:write('skip ', engine_name, ' engine values: ', engine_name, ' is not on the PATH\n')
+      end
+    end
+    if seen.quarto and seen.q2 then
+      for _, page in ipairs({ 'root', 'sub', 'single' }) do
+        check(seen.quarto[page] == seen.q2[page],
+          'quarto and q2 give the same engine values on the ' .. page .. ' page',
+          string.format('quarto %s; q2 %s', tostring(seen.quarto[page]), tostring(seen.q2[page])))
+      end
+    end
+  end)
+end
+
 io.stdout:write('# schema-check\n')
 
 do
