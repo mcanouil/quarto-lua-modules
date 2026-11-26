@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           q2_dir="${RUNNER_TEMP}/q2"
           mkdir -p -- "${q2_dir}/bin"
-          gh release download v0.34.0 -R quarto-dev/q2 \
+          gh release download v0.47.0 -R quarto-dev/q2 \
             -p 'q2-*-linux_amd64.tar.gz' -p 'checksums.sha256' -D "${q2_dir}"
           cd -- "${q2_dir}"
           sha256sum --check --ignore-missing --strict checksums.sha256
