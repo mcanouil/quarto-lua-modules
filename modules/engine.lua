@@ -125,4 +125,73 @@ function M.project_kind(meta)
   return nil, nil
 end
 
+-- ============================================================================
+-- DOCUMENT AND WRITER VALUES
+-- ============================================================================
+
+--- Get the directory of the document being rendered.
+--- Quarto 1 sets `QUARTO_DOCUMENT_PATH` to it, and Quarto 2 does not.
+--- @return string|nil dir The directory, or nil when neither route gives one
+--- @usage local dir = engine.document_dir()
+function M.document_dir()
+  local dir = os.getenv('QUARTO_DOCUMENT_PATH')
+  if not str.is_empty(dir) then
+    return dir
+  end
+  local input = quarto and quarto.doc and quarto.doc.input_file
+  if str.is_empty(input) then
+    return nil
+  end
+  return pandoc.path.directory(input)
+end
+
+--- Get the Reveal.js slide level.
+--- Quarto 1 gives a number in `PANDOC_WRITER_OPTIONS.slide_level`.
+--- Quarto 2 gives a null value there, so the `slide-level` metadata is read next.
+--- @param meta table|nil The document metadata
+--- @return integer level The slide level, 2 when nothing sets it
+--- @usage local level = engine.slide_level(doc.meta)
+function M.slide_level(meta)
+  local writer = PANDOC_WRITER_OPTIONS and tonumber(PANDOC_WRITER_OPTIONS.slide_level)
+  if writer ~= nil then
+    return writer
+  end
+  local value = meta and meta['slide-level']
+  local from_meta = value ~= nil and tonumber(type(value) == 'string' and value or pandoc.utils.stringify(value))
+  return from_meta or 2
+end
+
+-- ============================================================================
+-- OUTPUT CHECKS
+-- ============================================================================
+
+--- The `FORMAT` values of each output kind, as Quarto 1 defines them in `_format.lua`.
+local OUTPUT_FORMATS = {
+  html = {
+    html = true, html4 = true, html5 = true, epub = true, epub2 = true, epub3 = true,
+    s5 = true, dzslides = true, slidy = true, slideous = true, revealjs = true,
+  },
+  revealjs = { revealjs = true },
+  typst = { typst = true },
+  docx = { docx = true },
+}
+
+--- Check the output format.
+--- Quarto 1 has `quarto.format.is_<kind>_output()`, and Quarto 2 does not,
+--- so the `FORMAT` test of Quarto 1 is used when the function is missing.
+--- @param kind string One of 'html', 'revealjs', 'typst', 'docx'
+--- @return boolean is_kind Whether the output is of that kind
+--- @usage if engine.is_output('html') then ... end
+function M.is_output(kind)
+  local formats = OUTPUT_FORMATS[kind]
+  if formats == nil then
+    error("engine.is_output: unknown kind '" .. tostring(kind) .. "'; use one of: html, revealjs, typst, docx", 2)
+  end
+  local check = quarto and quarto.format and quarto.format['is_' .. kind .. '_output']
+  if type(check) == 'function' then
+    return check() == true
+  end
+  return formats[FORMAT] == true
+end
+
 return M

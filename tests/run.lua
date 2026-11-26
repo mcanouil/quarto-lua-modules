@@ -87,7 +87,8 @@ local EXPECTED = {
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
   embedded = { 'load' },
-  engine = { 'project_repo_url', 'project_site_url', 'project_kind' },
+  engine = { 'project_repo_url', 'project_site_url', 'project_kind', 'document_dir', 'slide_level',
+    'is_output' },
   html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
@@ -697,6 +698,71 @@ do
           nil, nil, nil, case[2])
       end)
     end
+
+    -- document_dir
+    local function with_document_path(value, fn)
+      local stubbed = os.getenv
+      os.getenv = function(name)
+        if name == 'QUARTO_DOCUMENT_PATH' then
+          return value
+        end
+        return stubbed(name)
+      end
+      fn()
+      os.getenv = stubbed
+    end
+    with_document_path('/a/b', function()
+      _G.quarto.doc = { input_file = '/x/y/z.qmd' }
+      returns('`engine.document_dir` reads QUARTO_DOCUMENT_PATH', '/a/b', engine.document_dir)
+    end)
+    with_document_path(nil, function()
+      _G.quarto.doc = { input_file = '/a/b/c.qmd' }
+      returns('`engine.document_dir` falls back to the directory of quarto.doc.input_file',
+        '/a/b', engine.document_dir)
+      _G.quarto.doc = nil
+      returns('`engine.document_dir` gives nil without either', nil, engine.document_dir)
+    end)
+
+    -- slide_level
+    local previous_writer = PANDOC_WRITER_OPTIONS
+    PANDOC_WRITER_OPTIONS = { slide_level = 3 }
+    returns('`engine.slide_level` reads a numeric writer option', 3, engine.slide_level, nil)
+    PANDOC_WRITER_OPTIONS = { slide_level = {} }
+    returns('`engine.slide_level` reads slide-level from the metadata when the writer option is not a number',
+      3, engine.slide_level, pandoc.Meta({ ['slide-level'] = pandoc.Inlines('3') }))
+    returns('`engine.slide_level` reads a string slide-level', 4, engine.slide_level,
+      pandoc.Meta({ ['slide-level'] = '4' }))
+    returns('`engine.slide_level` gives 2 without either', 2, engine.slide_level, nil)
+    PANDOC_WRITER_OPTIONS = nil
+    returns('`engine.slide_level` gives 2 without writer options', 2, engine.slide_level, pandoc.Meta({}))
+    PANDOC_WRITER_OPTIONS = previous_writer
+
+    -- is_output
+    local previous_format = FORMAT
+    local function output(format, kind)
+      FORMAT = format
+      local ok_call, value = pcall(engine.is_output, kind)
+      return ok_call and value
+    end
+    _G.quarto.format = nil
+    for _, case in ipairs({
+      { 'html', 'html', true }, { 'html5', 'html', true }, { 'epub3', 'html', true },
+      { 'revealjs', 'html', true }, { 'revealjs', 'revealjs', true }, { 'slidy', 'html', true },
+      { 'typst', 'typst', true }, { 'typst', 'html', false }, { 'docx', 'docx', true },
+      { 'html', 'revealjs', false }, { 'docx', 'html', false },
+    }) do
+      equal(output(case[1], case[2]), case[3],
+        string.format('`engine.is_output(%q)` is %s for FORMAT %s', case[2], tostring(case[3]), case[1]))
+    end
+    for _, kind in ipairs({ 'latex', 'pptx' }) do
+      local raised, message = pcall(engine.is_output, kind)
+      check(not raised and tostring(message):find('html, revealjs, typst, docx', 1, true) ~= nil,
+        string.format('`engine.is_output(%q)` raises with the accepted kinds', kind), tostring(message))
+    end
+    _G.quarto.format = { is_html_output = function() return true end }
+    equal(output('typst', 'html'), true, '`engine.is_output` uses quarto.format when it exists')
+    _G.quarto.format = nil
+    FORMAT = previous_format
   end)
 
   os.getenv = previous_getenv
