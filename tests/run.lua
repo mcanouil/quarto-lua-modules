@@ -87,6 +87,7 @@ local EXPECTED = {
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
   embedded = { 'load' },
+  engine = { 'project_repo_url', 'project_site_url', 'project_kind' },
   html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
@@ -151,7 +152,7 @@ do
     end
     handle:close()
   end
-  check(#with_siblings == 6, 'six modules load a sibling', table.concat(with_siblings, ', '))
+  check(#with_siblings == 7, 'seven modules load a sibling', table.concat(with_siblings, ', '))
   local function quote(text)
     return "'" .. text:gsub("'", "'\\''") .. "'"
   end
@@ -600,6 +601,107 @@ do
   os.getenv = previous_getenv
   _G.quarto = previous_quarto
   check(ok, 'the metadata checks ran without raising', err)
+end
+
+io.stdout:write('# engine\n')
+
+do
+  -- The same stand-ins as the metadata section: Lua cannot set an environment
+  -- variable, and `quarto pandoc lua` has no `quarto` global.
+  local engine = modules['engine']
+  local previous_getenv = os.getenv
+  local previous_quarto = _G.quarto
+  _G.quarto = { json = { decode = function(text) return pandoc.json.decode(text, false) end } }
+
+  local function with_env(value, fn)
+    os.getenv = function(name)
+      if name == 'QUARTO_EXECUTE_INFO' then
+        return value
+      end
+      return previous_getenv(name)
+    end
+    fn()
+  end
+
+  local function with_execute_info(content, fn)
+    pandoc.system.with_temporary_directory('engine', function(tmp)
+      local path = tmp .. '/info.json'
+      if content ~= nil then
+        write(path, content)
+      end
+      with_env(path, fn)
+    end)
+  end
+
+  --- Check the three project values for one setup, called with `meta`.
+  local function project_values(meta, description, repo, site, kind, reason)
+    local fns = {
+      { 'project_repo_url', repo },
+      { 'project_site_url', site },
+      { 'project_kind', kind },
+    }
+    for _, pair in ipairs(fns) do
+      local ok, value, got_reason = pcall(engine[pair[1]], meta)
+      check(ok and value == pair[2] and got_reason == reason,
+        string.format('`engine.%s` %s', pair[1], description),
+        ok and string.format('expected %s, %s; got %s, %s',
+          tostring(pair[2]), tostring(reason), tostring(value), tostring(got_reason))
+        or ('raised: ' .. tostring(value)))
+    end
+  end
+
+  local site_meta = pandoc.Meta({
+    website = { ['repo-url'] = 'https://r', ['site-url'] = 'https://s' },
+  })
+
+  local ok, err = pcall(function()
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":"https://r","site-url":"https://s"}}}}',
+      function()
+        project_values(nil, 'reads a website from QUARTO_EXECUTE_INFO', 'https://r', 'https://s', 'website')
+        project_values(pandoc.Meta({ book = { ['repo-url'] = 'https://m' } }),
+          'prefers QUARTO_EXECUTE_INFO to the document metadata', 'https://r', 'https://s', 'website')
+      end)
+    with_execute_info('{"format":{"metadata":{"book":{"repo-url":"https://b","site-url":"https://bs"}}}}',
+      function()
+        project_values(nil, 'reads a book from QUARTO_EXECUTE_INFO', 'https://b', 'https://bs', 'book')
+      end)
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":"https://w"},"book":{"repo-url":"https://b"}}}}',
+      function()
+        project_values(nil, 'gives the website value and the book kind when both exist', 'https://w', nil, 'book')
+      end)
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":""}}}}', function()
+      project_values(nil, 'gives nil for an empty repo-url', nil, nil, 'website')
+    end)
+
+    with_env(nil, function()
+      project_values(site_meta, 'reads the document metadata when QUARTO_EXECUTE_INFO is unset',
+        'https://r', 'https://s', 'website')
+      project_values(pandoc.Meta({ book = { ['repo-url'] = 'https://b' } }),
+        'reads a book from the document metadata', 'https://b', nil, 'book')
+      project_values(pandoc.Meta({ title = 'x' }), 'gives nil outside a project', nil, nil, nil)
+      project_values(nil, 'gives nil without QUARTO_EXECUTE_INFO or metadata', nil, nil, nil)
+    end)
+    with_env('', function()
+      project_values(site_meta, 'reads the document metadata when QUARTO_EXECUTE_INFO is empty',
+        'https://r', 'https://s', 'website')
+    end)
+
+    for _, case in ipairs({
+      { nil, 'file is unreadable' },
+      { '', 'file is empty' },
+      { '{bad', 'invalid JSON' },
+      { '{}', 'no format.metadata table' },
+    }) do
+      with_execute_info(case[1], function()
+        project_values(site_meta, 'reports "' .. case[2] .. '" without reading the document metadata',
+          nil, nil, nil, case[2])
+      end)
+    end
+  end)
+
+  os.getenv = previous_getenv
+  _G.quarto = previous_quarto
+  check(ok, 'the engine checks ran without raising', err)
 end
 
 io.stdout:write('# schema-check\n')

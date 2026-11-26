@@ -29,6 +29,7 @@ source quarto-lua-modules https://github.com/mcanouil/quarto-lua-modules {origin
 file quarto-lua-modules colour.lua
 file quarto-lua-modules content-extraction.lua
 file quarto-lua-modules embedded.lua
+file quarto-lua-modules engine.lua
 file quarto-lua-modules git.lua
 file quarto-lua-modules html.lua
 file quarto-lua-modules logging.lua
