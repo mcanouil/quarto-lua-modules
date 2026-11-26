@@ -87,6 +87,8 @@ local EXPECTED = {
     'parse_sections', 'extract_code_metadata' },
   git = { 'get_repository' },
   embedded = { 'load' },
+  engine = { 'project_repo_url', 'project_site_url', 'project_kind', 'document_dir', 'slide_level',
+    'is_output' },
   html = { 'raw_header', 'get_extension_version', 'ensure_html_dependency', 'reset_dependencies' },
   logging = { 'log_error', 'log_warning', 'log_output', 'log_debug' },
   lookup = { 'is_valid_value', 'in_array', 'keyword_to_value', 'size_to_css' },
@@ -151,7 +153,7 @@ do
     end
     handle:close()
   end
-  check(#with_siblings == 6, 'six modules load a sibling', table.concat(with_siblings, ', '))
+  check(#with_siblings == 7, 'seven modules load a sibling', table.concat(with_siblings, ', '))
   local function quote(text)
     return "'" .. text:gsub("'", "'\\''") .. "'"
   end
@@ -600,6 +602,276 @@ do
   os.getenv = previous_getenv
   _G.quarto = previous_quarto
   check(ok, 'the metadata checks ran without raising', err)
+end
+
+io.stdout:write('# engine\n')
+
+do
+  -- The same stand-ins as the metadata section: Lua cannot set an environment
+  -- variable, and `quarto pandoc lua` has no `quarto` global.
+  local engine = modules['engine']
+  local previous_getenv = os.getenv
+  local previous_quarto = _G.quarto
+  _G.quarto = { json = { decode = function(text) return pandoc.json.decode(text, false) end } }
+
+  local function with_env(value, fn)
+    os.getenv = function(name)
+      if name == 'QUARTO_EXECUTE_INFO' then
+        return value
+      end
+      return previous_getenv(name)
+    end
+    fn()
+  end
+
+  local function with_execute_info(content, fn)
+    pandoc.system.with_temporary_directory('engine', function(tmp)
+      local path = tmp .. '/info.json'
+      if content ~= nil then
+        write(path, content)
+      end
+      with_env(path, fn)
+    end)
+  end
+
+  --- Check the three project values for one setup, called with `meta`.
+  local function project_values(meta, description, repo, site, kind, reason)
+    local fns = {
+      { 'project_repo_url', repo },
+      { 'project_site_url', site },
+      { 'project_kind', kind },
+    }
+    for _, pair in ipairs(fns) do
+      local ok, value, got_reason = pcall(engine[pair[1]], meta)
+      check(ok and value == pair[2] and got_reason == reason,
+        string.format('`engine.%s` %s', pair[1], description),
+        ok and string.format('expected %s, %s; got %s, %s',
+          tostring(pair[2]), tostring(reason), tostring(value), tostring(got_reason))
+        or ('raised: ' .. tostring(value)))
+    end
+  end
+
+  local site_meta = pandoc.Meta({
+    website = { ['repo-url'] = 'https://r', ['site-url'] = 'https://s' },
+  })
+
+  local ok, err = pcall(function()
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":"https://r","site-url":"https://s"}}}}',
+      function()
+        project_values(nil, 'reads a website from QUARTO_EXECUTE_INFO', 'https://r', 'https://s', 'website')
+        project_values(pandoc.Meta({ book = { ['repo-url'] = 'https://m' } }),
+          'prefers QUARTO_EXECUTE_INFO to the document metadata', 'https://r', 'https://s', 'website')
+      end)
+    with_execute_info('{"format":{"metadata":{"book":{"repo-url":"https://b","site-url":"https://bs"}}}}',
+      function()
+        project_values(nil, 'reads a book from QUARTO_EXECUTE_INFO', 'https://b', 'https://bs', 'book')
+      end)
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":"https://w"},"book":{"repo-url":"https://b"}}}}',
+      function()
+        project_values(nil, 'gives the website value and the book kind when both exist', 'https://w', nil, 'book')
+      end)
+    with_execute_info('{"format":{"metadata":{"website":{"repo-url":""}}}}', function()
+      project_values(nil, 'gives nil for an empty repo-url', nil, nil, 'website')
+    end)
+
+    with_env(nil, function()
+      project_values(site_meta, 'reads the document metadata when QUARTO_EXECUTE_INFO is unset',
+        'https://r', 'https://s', 'website')
+      project_values(pandoc.Meta({ book = { ['repo-url'] = 'https://b' } }),
+        'reads a book from the document metadata', 'https://b', nil, 'book')
+      project_values(pandoc.Meta({ title = 'x' }), 'gives nil outside a project', nil, nil, nil)
+      project_values(nil, 'gives nil without QUARTO_EXECUTE_INFO or metadata', nil, nil, nil)
+    end)
+    with_env('', function()
+      project_values(site_meta, 'reads the document metadata when QUARTO_EXECUTE_INFO is empty',
+        'https://r', 'https://s', 'website')
+    end)
+
+    for _, case in ipairs({
+      { nil, 'file is unreadable' },
+      { '', 'file is empty' },
+      { '{bad', 'invalid JSON' },
+      { '{}', 'no format.metadata table' },
+    }) do
+      with_execute_info(case[1], function()
+        project_values(site_meta, 'reports "' .. case[2] .. '" without reading the document metadata',
+          nil, nil, nil, case[2])
+      end)
+    end
+
+    -- document_dir
+    local function with_document_path(value, fn)
+      local stubbed = os.getenv
+      os.getenv = function(name)
+        if name == 'QUARTO_DOCUMENT_PATH' then
+          return value
+        end
+        return stubbed(name)
+      end
+      fn()
+      os.getenv = stubbed
+    end
+    with_document_path('/stale', function()
+      _G.quarto.doc = { input_file = '/a/b/c.qmd' }
+      returns('`engine.document_dir` prefers the directory of quarto.doc.input_file to a stale QUARTO_DOCUMENT_PATH',
+        '/a/b', engine.document_dir)
+      _G.quarto.doc = nil
+      returns('`engine.document_dir` falls back to QUARTO_DOCUMENT_PATH without quarto.doc.input_file',
+        '/stale', engine.document_dir)
+    end)
+    with_document_path(nil, function()
+      _G.quarto.doc = { input_file = '/a/b/c.qmd' }
+      returns('`engine.document_dir` falls back to the directory of quarto.doc.input_file',
+        '/a/b', engine.document_dir)
+      _G.quarto.doc = nil
+      returns('`engine.document_dir` gives nil without either', nil, engine.document_dir)
+    end)
+
+    -- slide_level
+    local previous_writer = PANDOC_WRITER_OPTIONS
+    PANDOC_WRITER_OPTIONS = { slide_level = 3 }
+    returns('`engine.slide_level` reads a numeric writer option', 3, engine.slide_level, nil)
+    PANDOC_WRITER_OPTIONS = { slide_level = {} }
+    returns('`engine.slide_level` reads slide-level from the metadata when the writer option is not a number',
+      3, engine.slide_level, pandoc.Meta({ ['slide-level'] = pandoc.Inlines('3') }))
+    returns('`engine.slide_level` reads a string slide-level', 4, engine.slide_level,
+      pandoc.Meta({ ['slide-level'] = '4' }))
+    returns('`engine.slide_level` gives 2 without either', 2, engine.slide_level, nil)
+    PANDOC_WRITER_OPTIONS = nil
+    returns('`engine.slide_level` gives 2 without writer options', 2, engine.slide_level, pandoc.Meta({}))
+    PANDOC_WRITER_OPTIONS = previous_writer
+
+    -- is_output
+    local previous_format = FORMAT
+    local function output(format, kind)
+      FORMAT = format
+      local ok_call, value = pcall(engine.is_output, kind)
+      return ok_call and value
+    end
+    _G.quarto.format = nil
+    for _, case in ipairs({
+      { 'html', 'html', true }, { 'html5', 'html', true }, { 'epub3', 'html', true },
+      { 'revealjs', 'html', true }, { 'revealjs', 'revealjs', true }, { 'slidy', 'html', true },
+      { 'typst', 'typst', true }, { 'typst', 'html', false }, { 'docx', 'docx', true },
+      { 'html', 'revealjs', false }, { 'docx', 'html', false },
+    }) do
+      equal(output(case[1], case[2]), case[3],
+        string.format('`engine.is_output(%q)` is %s for FORMAT %s', case[2], tostring(case[3]), case[1]))
+    end
+    for _, kind in ipairs({ 'latex', 'pptx' }) do
+      local raised, message = pcall(engine.is_output, kind)
+      check(not raised and tostring(message):find('html, revealjs, typst, docx', 1, true) ~= nil,
+        string.format('`engine.is_output(%q)` raises with the accepted kinds', kind), tostring(message))
+    end
+    _G.quarto.format = { is_html_output = function() return true end }
+    equal(output('typst', 'html'), true, '`engine.is_output` uses quarto.format when it exists')
+    _G.quarto.format = nil
+    FORMAT = previous_format
+  end)
+
+  os.getenv = previous_getenv
+  _G.quarto = previous_quarto
+  check(ok, 'the engine checks ran without raising', err)
+end
+
+io.stdout:write('# engine on both engines\n')
+
+do
+  --- Render a website (a root page and a page in `sub/`) and a single file
+  --- with each engine on the PATH. A filter writes every engine value into the
+  --- page, and the check compares them with the expected values and across
+  --- the two engines.
+  local function quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+  end
+  local function read(path)
+    local handle = io.open(path, 'r')
+    if not handle then
+      return ''
+    end
+    local text = handle:read('a')
+    handle:close()
+    return text
+  end
+  local filter = table.concat({
+    "local engine = require(quarto.utils.resolve_path('_vendor/engine.lua'):gsub('%.lua$', ''))",
+    'function Pandoc(doc)',
+    '  local values = {',
+    "    tostring(engine.project_repo_url(doc.meta)), tostring(engine.project_site_url(doc.meta)),",
+    "    tostring(engine.project_kind(doc.meta)), tostring(engine.document_dir()),",
+    "    tostring(engine.slide_level(doc.meta)), tostring(engine.is_output('html')),",
+    '  }',
+    "  doc.blocks:insert(pandoc.Para(pandoc.Str('ENGINE[' .. table.concat(values, '|') .. ']')))",
+    '  return doc',
+    'end',
+  }, '\n') .. '\n'
+
+  pandoc.system.with_temporary_directory('engine-both', function(tmp)
+    local site = tmp .. '/site'
+    local single = tmp .. '/single'
+    for _, dir in ipairs({ site .. '/sub', site .. '/_vendor', single .. '/_vendor' }) do
+      pandoc.system.make_directory(dir, true)
+    end
+    for _, dir in ipairs({ site, single }) do
+      assert(os.execute('cp ' .. quote(here .. 'modules') .. '/*.lua ' .. quote(dir .. '/_vendor')),
+        'cannot copy the modules into ' .. dir)
+      write(dir .. '/engine-filter.lua', filter)
+    end
+    write(site .. '/_quarto.yml', 'project:\n  type: website\nwebsite:\n  title: Site\n'
+      .. '  repo-url: https://github.com/example/site\n  site-url: https://example.org\n'
+      .. 'filters:\n  - engine-filter.lua\n')
+    write(site .. '/index.qmd', '---\ntitle: Root\n---\n\nRoot.\n')
+    write(site .. '/sub/index.qmd', '---\ntitle: Sub\nfilters:\n  - ../engine-filter.lua\n---\n\nSub.\n')
+    write(single .. '/doc.qmd', '---\ntitle: Single\nformat: html\nfilters:\n  - engine-filter.lua\n---\n\nSingle.\n')
+
+    --- The values of one page, with the document directory made relative to `tmp`.
+    local function values(path)
+      local raw = read(path):match('ENGINE%[(.-)%]')
+      if raw == nil then
+        return nil
+      end
+      local parts = {}
+      for part in (raw .. '|'):gmatch('(.-)|') do
+        parts[#parts + 1] = part
+      end
+      parts[4] = (parts[4]:gsub('^.*/engine%-both[^/]*', ''))
+      return table.concat(parts, '|')
+    end
+
+    local expected = {
+      root = 'https://github.com/example/site|https://example.org|website|/site|2|true',
+      sub = 'https://github.com/example/site|https://example.org|website|/site/sub|2|true',
+      single = 'nil|nil|nil|/single|2|true',
+    }
+    local seen = {}
+    for _, engine_name in ipairs({ 'quarto', 'q2' }) do
+      if os.execute(engine_name .. ' --version > /dev/null 2>&1') then
+        os.execute('cd ' .. quote(site) .. ' && ' .. engine_name .. ' render > render-' .. engine_name .. '.log 2>&1')
+        os.execute('cd ' .. quote(single) .. ' && ' .. engine_name .. ' render doc.qmd > render-' .. engine_name .. '.log 2>&1')
+        local got = {
+          root = values(site .. '/_site/index.html'),
+          sub = values(site .. '/_site/sub/index.html'),
+          single = values(single .. '/doc.html'),
+        }
+        for _, page in ipairs({ 'root', 'sub', 'single' }) do
+          check(got[page] == expected[page],
+            string.format('%s gives the expected engine values on the %s page', engine_name, page),
+            string.format('expected %s; got %s; log: %s', expected[page], tostring(got[page]),
+              read((page == 'single' and single or site) .. '/render-' .. engine_name .. '.log'):sub(-400)))
+        end
+        seen[engine_name] = got
+      else
+        io.stdout:write('skip ', engine_name, ' engine values: ', engine_name, ' is not on the PATH\n')
+      end
+    end
+    if seen.quarto and seen.q2 then
+      for _, page in ipairs({ 'root', 'sub', 'single' }) do
+        check(seen.quarto[page] == seen.q2[page],
+          'quarto and q2 give the same engine values on the ' .. page .. ' page',
+          string.format('quarto %s; q2 %s', tostring(seen.quarto[page]), tostring(seen.q2[page])))
+      end
+    end
+  end)
 end
 
 io.stdout:write('# schema-check\n')

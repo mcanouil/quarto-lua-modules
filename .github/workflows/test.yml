@@ -49,7 +49,8 @@ jobs:
       # q2 has no `debug` library, so the modules find their siblings another
       # way there. The suite renders a vendored copy with q2 when it is on the
       # PATH, which this step provides. HTML needs no pandoc of its own. The
-      # release is pinned, so a new q2 changes the job only through a commit.
+      # step looks up the newest q2 pre-release when the job runs, so the engine
+      # checks follow q2 as it changes. It prints the tag, so a failure names the build.
       - name: Set up q2
         env:
           GH_TOKEN: ${{ github.token }}
@@ -57,7 +58,14 @@ jobs:
           set -euo pipefail
           q2_dir="${RUNNER_TEMP}/q2"
           mkdir -p -- "${q2_dir}/bin"
-          gh release download v0.34.0 -R quarto-dev/q2 \
+          tag="$(gh release list -R quarto-dev/q2 --limit 50 --json tagName,isPrerelease,publishedAt \
+            --jq '[.[] | select(.isPrerelease)] | sort_by(.publishedAt) | last | .tagName // empty')"
+          if [[ -z "${tag}" ]]; then
+            printf 'Error: quarto-dev/q2 has no pre-release to test with.\n' >&2
+            exit 1
+          fi
+          printf 'q2 pre-release: %s\n' "${tag}"
+          gh release download "${tag}" -R quarto-dev/q2 \
             -p 'q2-*-linux_amd64.tar.gz' -p 'checksums.sha256' -D "${q2_dir}"
           cd -- "${q2_dir}"
           sha256sum --check --ignore-missing --strict checksums.sha256

@@ -32,6 +32,7 @@ Copy the sibling with it, or the filter fails at render time with `module ... no
 | Module | Needs |
 | --- | --- |
 | `content-extraction.lua` | `string.lua`, `html.lua` |
+| `engine.lua` | `metadata.lua` (and so `string.lua`, `logging.lua`) |
 | `html.lua` | `string.lua` |
 | `metadata.lua` | `string.lua`, `logging.lua` |
 | `paths.lua` | `string.lua` |

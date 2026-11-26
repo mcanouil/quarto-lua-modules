@@ -1,6 +1,6 @@
 # Quarto Lua Modules
 
-Shared Lua modules for Quarto extensions: colour conversion, string escaping, metadata access, path resolution, and schema checks.
+Shared Lua modules for Quarto extensions: colour conversion, string escaping, metadata access, path resolution, schema checks, and values that Quarto 1 and Quarto 2 expose differently.
 
 Quarto has no package manager for Lua.
 An extension therefore copies the modules it uses into its own repository, and commits them.
