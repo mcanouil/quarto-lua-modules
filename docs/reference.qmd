@@ -69,11 +69,15 @@ It needs `metadata.lua` and `string.lua`.
 | `project_repo_url(meta)` | `string` or `nil`, reason | Returns `website.repo-url`, else `book.repo-url`. Quarto 1 gives it in `QUARTO_EXECUTE_INFO`, and Quarto 2 in the document metadata `meta`. The reason is the same as for `metadata.get_project_metadata`, and is set only when `QUARTO_EXECUTE_INFO` cannot be read. |
 | `project_site_url(meta)` | `string` or `nil`, reason | Returns `website.site-url`, else `book.site-url`, by the same rule as `project_repo_url`. |
 | `project_kind(meta)` | `'book'`, `'website'` or `nil`, reason | Returns `'book'` when the project has a `book` map, else `'website'` when it has a `website` map. Returns `nil` for any other project and for a single file. |
-| `document_dir()` | `string` or `nil` | Returns the directory of the document being rendered. Quarto 1 gives it in `QUARTO_DOCUMENT_PATH`, and Quarto 2 through `quarto.doc.input_file`. |
+| `document_dir()` | `string` or `nil` | Returns the directory of the document being rendered, from `quarto.doc.input_file`. When that is missing, it reads `QUARTO_DOCUMENT_PATH`. |
 | `slide_level(meta)` | integer | Returns the Reveal.js slide level. Quarto 1 gives it in `PANDOC_WRITER_OPTIONS.slide_level`, and Quarto 2 in the `slide-level` metadata. Returns 2 when nothing sets it. |
 | `is_output(kind)` | `boolean` | Returns whether the output is of `kind`: `html`, `revealjs`, `typst` or `docx`. It uses `quarto.format.is_<kind>_output()` when it exists, and the `FORMAT` test of Quarto 1 otherwise. Any other kind raises an error. |
 
 : Functions of `engine.lua`. {.striped .hover tbl-colwidths="[25,20,55]"}
+
+Quarto 1 does not set `QUARTO_EXECUTE_INFO` for a page that it takes from the freeze cache (`execute: freeze`).
+For such a page, rendered alone or first, the three `project_*` functions return `nil` in Quarto 1 and the project values in Quarto 2.
+`metadata.get_project_metadata` has the same limit in Quarto 1.
 
 Pass the document metadata from a `Pandoc` or `Meta` handler:
 

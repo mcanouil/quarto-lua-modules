@@ -711,9 +711,13 @@ do
       fn()
       os.getenv = stubbed
     end
-    with_document_path('/a/b', function()
-      _G.quarto.doc = { input_file = '/x/y/z.qmd' }
-      returns('`engine.document_dir` reads QUARTO_DOCUMENT_PATH', '/a/b', engine.document_dir)
+    with_document_path('/stale', function()
+      _G.quarto.doc = { input_file = '/a/b/c.qmd' }
+      returns('`engine.document_dir` prefers the directory of quarto.doc.input_file to a stale QUARTO_DOCUMENT_PATH',
+        '/a/b', engine.document_dir)
+      _G.quarto.doc = nil
+      returns('`engine.document_dir` falls back to QUARTO_DOCUMENT_PATH without quarto.doc.input_file',
+        '/stale', engine.document_dir)
     end)
     with_document_path(nil, function()
       _G.quarto.doc = { input_file = '/a/b/c.qmd' }

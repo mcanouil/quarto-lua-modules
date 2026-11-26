@@ -7,6 +7,10 @@
 --- Each function returns the same value in Quarto 1 and in Quarto 2 for the
 --- same document. It reads the data that is present, never the name or the
 --- version of the engine, so it keeps working when Quarto 2 adds a route.
+---
+--- Known limit: Quarto 1 does not set `QUARTO_EXECUTE_INFO` for a page that it
+--- takes from the freeze cache, so the `project_*` functions return nil there
+--- in Quarto 1, as `metadata.get_project_metadata` does.
 
 local M = {}
 
@@ -130,19 +134,22 @@ end
 -- ============================================================================
 
 --- Get the directory of the document being rendered.
---- Quarto 1 sets `QUARTO_DOCUMENT_PATH` to it, and Quarto 2 does not.
+--- `quarto.doc.input_file` gives it on both engines, so it is read first.
+--- `QUARTO_DOCUMENT_PATH` is only a fallback: Quarto 1 does not set it again
+--- for a page that it takes from the freeze cache, so it can name the
+--- directory of the page rendered before.
 --- @return string|nil dir The directory, or nil when neither route gives one
 --- @usage local dir = engine.document_dir()
 function M.document_dir()
-  local dir = os.getenv('QUARTO_DOCUMENT_PATH')
-  if not str.is_empty(dir) then
-    return dir
-  end
   local input = quarto and quarto.doc and quarto.doc.input_file
-  if str.is_empty(input) then
+  if not str.is_empty(input) then
+    return pandoc.path.directory(input)
+  end
+  local dir = os.getenv('QUARTO_DOCUMENT_PATH')
+  if str.is_empty(dir) then
     return nil
   end
-  return pandoc.path.directory(input)
+  return dir
 end
 
 --- Get the Reveal.js slide level.
