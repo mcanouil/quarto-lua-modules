@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.14.0 (2026-11-26)
+
 - fix: `extract_div` walks the blocks with `Div:walk`, which Quarto 2 supports, instead of `pandoc.walk_block`.
 - feat: Add the `engine` module, whose functions give the same value in Quarto 1 and Quarto 2 for project values, the document directory, the slide level and output checks.
 
